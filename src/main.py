@@ -26,7 +26,7 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
-@app.post("/api/register")
+@app.post("/register")
 def register(request: RegisterRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == request.username).first()
     if user:
@@ -38,7 +38,7 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
     db.refresh(new_user)
     return {"message": "User registered successfully"}
 
-@app.post("/api/login")
+@app.post("/login")
 def login(request: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == request.username).first()
     if not user or not pwd_context.verify(request.password, user.hashed_password):

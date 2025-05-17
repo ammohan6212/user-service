@@ -3,7 +3,7 @@ FROM python:3.11
 
 # Set base working directory
 WORKDIR /app
-
+COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 # Copy the entire src folder into the container

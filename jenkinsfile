@@ -1,0 +1,643 @@
+pipeline{
+    agent any
+
+    stages{
+        stage("Clone the Repository") {
+            agent any
+            when {
+                branch 'dev'
+            }
+            steps {
+                script{
+                    // Clone the dev branch
+                    git branch: 'dev',url: "https://github.com/ammohan6212/front-end.git"
+                    // git branch: 'dev',credentialsId: 'github-token',url: "https://github.com/ammohan6212/front-end.git"
+
+                    // Fetch all tags
+                    sh 'git fetch --tags'
+
+                    // Get the latest tag correctly
+                    def version = sh(
+                        script: "git describe --tags \$(git rev-list --tags --max-count=1)",
+                        returnStdout: true
+                    ).trim()
+                    
+                    // Make version available as environment variable
+                    env.version = version
+
+                    
+                    echo "VERSION=${env.VERSION}"
+                }
+                
+            }
+        }
+
+        stage('get the current application version'){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    echo "VERSION=${env.version}"
+                }
+            }
+        }
+        stage("linting the code"){
+            when{
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    pip install -r  requirements.txt
+                    flake8 src/  
+                    pylint src/   ##we will rate about our code
+                    black src/
+                    """
+                }
+            }
+        }
+        stage("infrastrucure linting"){
+            when {
+                branch 'dev'
+            }
+            steps {
+                script{
+                    sh """
+                    #tflint  terraform/
+                    """
+                }
+            }
+        }
+        stage("perform the code kubeernetes linintg"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    # .gobin/kube-linter kubernetes/
+                    """
+                }
+            }
+        }
+        stage("perform the docker linting"){
+            when{
+                branch 'dev'
+            }
+            steps {
+                script{
+                    sh """
+                    docker pull hadolint/hadolint
+                    docker run --rm -i hadolint/hadolint < dockerfile
+
+                    npm install --global dockerlinter
+                    dockerlinter -f Dockerfile
+                    """
+                }
+            }
+        }
+        stage("yaml or json schema valdiation"){
+            when{
+                branch 'dev'
+            }
+            steps {
+                script{
+                    sh """
+                    """
+                }
+            }
+        }
+        stage("secretes detection"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    gitleaks detect --source=. --verbose --redact
+                    trufflehog filesystem . --no-update
+                    """
+                }
+            }
+        }
+        stage("install the dependencies"){
+            when{
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    pip install -r  requirements.txt
+                    """
+                }
+            }
+        }
+        stage("dependendency scanning or software composition analyssis"){
+            when{
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    pip-audit
+                    bandit -r src/main.py
+                    snyk test --file=requirements.txt
+                    dependency-check.sh  --file=requirements.txt
+                   """
+                }
+            }
+        }
+        stage("type checking"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    mypy src/
+                    pyright src/
+                    """
+                }
+            }
+        }
+        stage("perform the unit tests"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    pytest tests/test.py          
+                    python tests/test_main_unittest.py   ###unittest
+                    """
+                }
+            }
+        }
+         stage("test code coverage calvulation"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script {
+                    sh """
+                    coverage run --source=src -m unittest discover -s tests
+                    coverage run --source=src tests/test_main_unittest.py
+                    coverage run --source=src tests/test.py
+                    pytest --cov=src tests/test_main_unittest.py
+                    pytest --cov=src tests/test.py
+                    """
+                }
+            }
+        }
+        stage("perform the static code analysis using sonarqueb"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    /opt/sonar-scanner/bin/sonar-scanner
+                    """
+                }
+            }
+        }
+        stage("mutation testing"){
+            when {
+                branch 'dev'
+            }
+            steps {
+                script{
+                    sh """
+                    
+                    """
+                }
+            }
+        }
+        stage("snap shot testing"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    pytest
+                    """
+                }
+            }
+        }
+        stage("building the application"){
+            when{
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    """
+                }
+            }
+        }
+        stage("create the archiving file"){
+            when{
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    zip -r src.zip src/
+                    """
+                }
+            }
+        }
+        stage("push the artifact to the nexus or jfrog or other artifact storage platforms"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    """
+                }
+            }
+        }
+        stage("perform the docker image build"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    docker build -t frontend:${env.version} .
+                    """
+                }
+            }
+        }
+        stage("docker linting and  image validation"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    docker image inspect myapp:${env.version}
+                    """
+                }
+            }
+        }
+
+        stage("perform the container scanning using trivy"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    trivy image --format table frontend:${env.version}       # Table format
+                    trivy image --format json frontend:${env.version}    # JSON format
+                    trivy image --scanners secret --format json --output trivy-secrets.json frontend:${env.version} 
+                    """
+                }
+            }
+        }
+        stage("perform the container scanning using snyk"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    snyk container test frontend:v1.0.0 --file=Dockerfile
+                    snyk container test frontend:${env.version} 
+                    snyk test --file=Dockerfile 
+                    snyk test --docker your-image:tag
+                    """
+                }
+            }
+        }
+        stage("perform the container scanning using dockerr scout "){
+            when{
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    docker scout quickview frontend:${env.version}   #
+                    docker scout cves frontend:${env.version}
+                    """
+                }
+            }
+
+        }
+        stage("perfomr the container scanning using the grype"){
+            when{
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    grype frontend:${env.version}
+                    grype frontend:${env.version} -o table
+                    grype frontend:${env.version} -o json
+                    """
+                }
+            }
+        }
+        stag("perform the container scannning using the syft and dockel"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    syft frontend:1.0
+                    dockle frontend:${env.version}
+                    """
+                }
+            }
+        }
+
+        stage("perform the integration with the docker containers"){
+            when{
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    # 1. Start containers
+                    docker-compose up -d
+                    pytest tests/test_integration.py
+                    docker-compose down
+                    """
+                }
+            }
+        }
+        
+        stage("Api contract testing"){
+            when{
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    schemathesis run openapi.yaml --base-url=http://localhost:8000
+                    """
+                }
+            }
+        }
+        stage("Build verification test or smoke test"){
+            when {
+                branch 'dev'
+            }
+            steps {
+                script{
+                     sh """"""
+                }
+            }
+        }
+        stage("regressin testing"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """"""
+                }
+            }
+        }
+        stage("ui/componenet testing"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """"""
+                }
+            }
+        }
+        stage("static security analysis"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    bandit -r src/
+                    """
+                }
+            }
+        }
+        stage("chaos testing"){
+            when{
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """
+                    chaos run chaos-experiment.json
+                    """
+                }
+            }
+        }
+        stage("push the docker image to the specified registry"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """"""
+                }
+            }
+        }
+        stage("perform the security scanning analysis"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """"""
+                }
+            }
+        }
+        stage("deploy to dev"){
+            when {
+                branch 'dev'
+            }
+            steps{
+                script{
+                    sh """"""
+                }
+            }
+        }
+        stage("Generate Version File dev env") {
+            agent { label 'security-agent'}
+            when {
+                branch 'dev'
+            }
+            steps {
+                script {
+                    def version = sh(script: "git describe --tags \$(git rev-list --tags --max-count=1)", returnStdout: true).trim()
+                    def commit = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
+                    def branch = 'dev'
+                    def date = sh(script: "date -u +'%Y-%m-%dT%H:%M:%SZ'", returnStdout: true).trim()
+
+                    writeFile file: "version-dev${version}.txt", text: """
+                        VERSION=${version}
+                        BUILD_NUMBER=${env.BUILD_NUMBER}
+                        BUILD_DATE=${date}
+                        GIT_COMMIT=${commit}
+                        GIT_BRANCH=${branch}
+                        BUILD_BY=jenkins
+                    """.stripIndent()
+
+                    echo "Generated version.txt"
+                    sh """
+                    aws s3 cp version-dev${version}.txt s3://your-bucket-name/path/to/version.txt
+                    """
+            }
+         }
+        }
+        stage("deploy to test"){
+            when {
+                branch 'test'
+            }
+            steps{
+                script{
+                    sh """"""
+                }
+            }
+        }
+        stage("Generate Version File dev env") {
+            agent { label 'security-agent'}
+            when {
+                branch 'test'
+            }
+            steps {
+                script {
+                    def version = sh(script: "git describe --tags \$(git rev-list --tags --max-count=1)", returnStdout: true).trim()
+                    def commit = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
+                    def branch = 'test'
+                    def date = sh(script: "date -u +'%Y-%m-%dT%H:%M:%SZ'", returnStdout: true).trim()
+
+                    writeFile file: "version-test${version}.txt", text: """
+                        VERSION=${version}
+                        BUILD_NUMBER=${env.BUILD_NUMBER}
+                        BUILD_DATE=${date}
+                        GIT_COMMIT=${commit}
+                        GIT_BRANCH=${branch}
+                        BUILD_BY=jenkins
+                    """.stripIndent()
+
+                    echo "Generated version.txt"
+                    sh """
+                    aws s3 cp version-test${version}.txt s3://your-bucket-name/path/to/version.txt
+                    """
+            }
+         }
+        }
+        stage("Approval Before  Deploying to stag") {
+        when {
+            branch 'stag' // or 'prod' depending on your naming
+        }
+        steps {
+            script {
+                input message: "Do you approve deployment to stag and send the artifact to the client?",
+                    ok: "Deploy Now",
+                    submitter: "manager,admin" // Optional: restrict who can approve
+            }
+        }
+        }
+
+        stage("deploy to QA"){
+            when {
+                branch 'stag'
+            }
+            steps{
+                script{
+                    sh """"""
+                }
+            }
+        }
+        stage("Generate Version File dev env") {
+            agent { label 'security-agent'}
+            when {
+                branch 'stag'
+            }
+            steps {
+                script {
+                    def version = sh(script: "git describe --tags \$(git rev-list --tags --max-count=1)", returnStdout: true).trim()
+                    def commit = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
+                    def branch = 'stag'
+                    def date = sh(script: "date -u +'%Y-%m-%dT%H:%M:%SZ'", returnStdout: true).trim()
+
+                    writeFile file: "version-stag${version}.txt", text: """
+                        VERSION=${version}
+                        BUILD_NUMBER=${env.BUILD_NUMBER}
+                        BUILD_DATE=${date}
+                        GIT_COMMIT=${commit}
+                        GIT_BRANCH=${branch}
+                        BUILD_BY=jenkins
+                    """.stripIndent()
+
+                    echo "Generated version.txt"
+                    sh """
+                    aws s3 cp version-stag${version}.txt s3://your-bucket-name/path/to/version.txt
+                    """
+            }
+         }
+        }
+        stage("Approval Before Production Deployment") {
+        when {
+            branch 'main' // or 'prod' depending on your naming
+        }
+        steps {
+            script {
+                input message: "Do you approve deployment to stag and send the artifact to the client?",
+                    ok: "Deploy Now",
+                    submitter: "manager,admin" // Optional: restrict who can approve
+            }
+        }
+        }
+        
+        stage("deploy to main"){
+            when{
+                branch 'main'
+            }
+            steps{
+                script{
+                    sh """"""
+                }
+            }
+        }
+        stage("Generate Version File prod env") {
+            agent { label 'security-agent'}
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    def version = sh(script: "git describe --tags \$(git rev-list --tags --max-count=1)", returnStdout: true).trim()
+                    def commit = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
+                    def branch = 'main'
+                    def date = sh(script: "date -u +'%Y-%m-%dT%H:%M:%SZ'", returnStdout: true).trim()
+
+                    writeFile file: "version-main${version}.txt", text: """
+                        VERSION=${version}
+                        BUILD_NUMBER=${env.BUILD_NUMBER}
+                        BUILD_DATE=${date}
+                        GIT_COMMIT=${commit}
+                        GIT_BRANCH=${branch}
+                        BUILD_BY=jenkins
+                    """.stripIndent()
+
+                    echo "Generated version.txt"
+                    sh """
+                    aws s3 cp version-main${version}.txt s3://your-bucket-name/path/to/version.txt
+                    """
+            }
+         }
+        }
+
+
+
+}
+}

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from database import SessionLocal, User
 from passlib.context import CryptContext
 from auth import create_access_token
-from pydantic import BaseModel
+from pydantic import BaseModel,EmailStr
 
 app = FastAPI()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -23,7 +23,7 @@ class RegisterRequest(BaseModel):
     password: str
 
 class LoginRequest(BaseModel):
-    username: str
+    email: EmailStr
     password: str
 
 @app.post("/register")
@@ -40,8 +40,9 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
 
 @app.post("/login")
 def login(request: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == request.username).first()
+    user = db.query(User).filter(User.email == request.email).first()
     if not user or not pwd_context.verify(request.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    access_token = create_access_token(data={"sub": user.username})
+    
+    access_token = create_access_token(data={"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}

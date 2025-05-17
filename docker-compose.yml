@@ -1,4 +1,3 @@
-version: "3.8"
 services:
   backend:
     image: user:1.0
@@ -9,8 +8,6 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/mydb
     depends_on:
       - db
-    networks:
-      - mynetwork
 
   frontend:
     image: front:1.0
@@ -19,8 +16,6 @@ services:
       - "3000:80"
     depends_on:
       - backend
-    networks:
-      - mynetwork
 
   db:
     image: postgres:14
@@ -34,12 +29,6 @@ services:
       - pgdata:/var/lib/postgresql/data
     ports:
       - "5432:5432"
-    networks:
-      - mynetwork
 
 volumes:
   pgdata:
-
-networks:
-  mynetwork:
-    driver: bridge

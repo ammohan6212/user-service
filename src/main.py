@@ -4,7 +4,6 @@ from database import SessionLocal, User
 from passlib.context import CryptContext
 from auth import create_access_token
 from pydantic import BaseModel
-from models import PasswordResetToken
 from datetime import datetime, timedelta
 import secrets
 

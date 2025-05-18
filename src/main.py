@@ -4,6 +4,9 @@ from database import SessionLocal, User
 from passlib.context import CryptContext
 from auth import create_access_token
 from pydantic import BaseModel
+from models import PasswordResetToken
+from datetime import datetime, timedelta
+import secrets
 
 app = FastAPI()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -25,6 +28,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+
 
 @app.post("/register")
 def register(request: RegisterRequest, db: Session = Depends(get_db)):

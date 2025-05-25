@@ -51,7 +51,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     access_token = create_access_token(data={"sub": user.username})
     try:
-        go_backend_url = "http://localhost:8000/api/products"  # Replace with actual URL or service name
+        go_backend_url = "http://localhost:8080/api/products"  # Replace with actual URL or service name
         payload = {
             "username": user.username,
             "status": "logged_in"

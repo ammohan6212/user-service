@@ -6,6 +6,8 @@ from auth import create_access_token
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 import secrets
+from fastapi.responses import RedirectResponse
+from httpx import post
 
 app = FastAPI()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -28,6 +30,7 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+GO_BACKEND_URL = "http://localhost:8000/products"
 
 @app.post("/register")
 def register(request: RegisterRequest, db: Session = Depends(get_db)):
@@ -47,6 +50,16 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     if not user or not pwd_context.verify(request.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     access_token = create_access_token(data={"sub": user.username})
+    try:
+        go_backend_url = "http://localhost:8000/api/products"  # Replace with actual URL or service name
+        payload = {
+            "username": user.username,
+            "status": "logged_in"
+        }
+        post(go_backend_url, json=payload)
+    except Exception as e:
+        print(f"Failed to notify Go backend: {e}")  # Optional: log the error
+
     return {
         "message": "Login successful",
         "access_token": access_token,

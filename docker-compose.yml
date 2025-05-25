@@ -13,6 +13,16 @@ services:
     networks:
       - app-network
 
+  go-backend:
+    image: product:1.0
+    container_name: go-product-service
+    ports:
+      - "8080:8080"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
   frontend:
     image: front:1.0
     container_name: react-frontend
@@ -20,6 +30,7 @@ services:
       - "80:80"
     depends_on:
       - backend
+      - go-backend
     networks:
       - app-network
 

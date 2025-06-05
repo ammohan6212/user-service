@@ -1,5 +1,12 @@
 # Use official Python image
 FROM python:3.11-alpine
+RUN apk update && apk add --no-cache \
+    gcc \
+    musl-dev \
+    libffi-dev \
+    postgresql-dev \
+    build-base \
+    cargo
 
 # Set base working directory
 WORKDIR /app

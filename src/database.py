@@ -16,4 +16,13 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
 
+
+class Seller(Base):
+    __tablename__ = "Seller"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    email = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+
 Base.metadata.create_all(bind=engine)

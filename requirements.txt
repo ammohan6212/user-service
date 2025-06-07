@@ -10,5 +10,4 @@ httpx
 redis
 sendgrid
 pydantic[email]
-smtplib
 email

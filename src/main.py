@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import secrets
 from fastapi.responses import RedirectResponse
 from httpx import post
-from utils import generate_otp,store_otp,send_email_otp,verify_otp
+from utils import generate_otp,store_otp,send_email_otp_gmail,verify_otp
 
 app = FastAPI()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -47,7 +47,7 @@ class VerifyOtpRequest(BaseModel):
 def start_registration(request: StartRegistrationRequest):
     otp = generate_otp()
     store_otp(request.email, otp)
-    status_code = send_email_otp(request.email, otp)
+    status_code = send_email_otp_gmail(request.email, otp)
 
     if status_code != 202:
         raise HTTPException(status_code=500, detail="Failed to send OTP email")

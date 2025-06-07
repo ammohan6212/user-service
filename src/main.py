@@ -181,7 +181,7 @@ def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db
     return {"message": "OTP sent to your email."}
 
 
-@app.post("/verify-otp")
+@app.post("/verify-user-otp")
 def verify_forgot_password_otp(request: VerifyForgotPasswordOtpRequest):
     if not verify_otp(request.email, request.otp, delete_on_success=False):
         raise HTTPException(status_code=401, detail="Invalid or expired OTP")

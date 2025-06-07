@@ -26,7 +26,7 @@ def store_otp(email, otp, ttl=300):
 
 
 def send_email_otp(email, otp):
-    sg = sendgrid.SendGridAPIClient(api_key='bofjpfgnlezmqexu')
+    sg = sendgrid.SendGridAPIClient(api_key='5G.bofjpfgnlezmqexu')
     message = Mail(
         from_email='mohancloud9676@gmail.com',
         to_emails=email,

@@ -55,7 +55,7 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 
-@app.post("/start-registration")
+@app.post("/start-seller-registration")
 def start_registration(request: StartRegistrationRequest, db: Session = Depends(get_db)):
     # 1️⃣ Check if email already registered
     existing_user = db.query(Seller).filter(Seller.username == request.username).first()
@@ -79,7 +79,7 @@ def start_registration(request: StartRegistrationRequest, db: Session = Depends(
     return {"message": "OTP sent to your email."}
 
 
-@app.post("/verify-otp")
+@app.post("/verify-seller-otp")
 def verify_otp_and_register(request: VerifyOtpRequest, db: Session = Depends(get_db)):
     # Check if OTP is valid, don't delete yet
     # Check OTP validity (401 = Unauthorized, since OTP is part of authentication process)
@@ -100,6 +100,19 @@ def verify_otp_and_register(request: VerifyOtpRequest, db: Session = Depends(get
     db.refresh(new_seller)
 
     return {"message": "Sell"}
+
+@app.post("/seller-login")
+def login(request: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(Seller).filter(Seller.username == request.username).first()
+    if not user or not pwd_context.verify(request.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    access_token = create_access_token(data={"sub": user.username})
+    return {
+        "message": " seller Login successful",
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
+
 
 
 @app.post("/start-user-registration")
@@ -149,7 +162,8 @@ def verify_user_otp_and_register(request: VerifyOtpRequest, db: Session = Depend
 
 
 
-@app.post("/login")
+
+@app.post("/user-login")
 def login(request: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == request.username).first()
     if not user or not pwd_context.verify(request.password, user.hashed_password):
@@ -162,7 +176,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     }
 
 
-@app.post("/forgot-password")
+@app.post("/forgot-user-password")
 def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db)):
     # Check if email exists
     user = db.query(User).filter(User.email == request.email).first()
@@ -192,8 +206,7 @@ def verify_forgot_password_otp(request: VerifyForgotPasswordOtpRequest):
     # Allow reset
     return {"message": "OTP verified. You can now reset your password."}
 
-
-@app.post("/reset-password")
+@app.post("/reset-user-password")
 def reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == request.email).first()
     if not user:
@@ -243,36 +256,3 @@ def seller_reset_password(request: ResetPasswordRequest, db: Session = Depends(g
     db.commit()
 
     return {"message": "Password reset successfully!"}
-
-
-
-
-
-
-
-# @app.post("/seller-register")
-# def register(request: RegisterRequest, db: Session = Depends(get_db)):
-#     user = db.query(Seller).filter(Seller.username == request.username).first()
-#     if user:
-#         raise HTTPException(status_code=400, detail="Username already registered")
-#     hashed_password = pwd_context.hash(request.password)
-#     new_user = Seller(username=request.username, email=request.email, hashed_password=hashed_password)
-#     db.add(new_user)
-#     db.commit()
-#     db.refresh(new_user)
-#     return {"message": "seller registered successfully"}
-
-
-
-
-@app.post("/seller-login")
-def login(request: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(Seller).filter(Seller.username == request.username).first()
-    if not user or not pwd_context.verify(request.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    access_token = create_access_token(data={"sub": user.username})
-    return {
-        "message": " seller Login successful",
-        "access_token": access_token,
-        "token_type": "bearer"
-    }

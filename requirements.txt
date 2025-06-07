@@ -7,3 +7,5 @@ python-dotenv
 sqlalchemy
 psycopg2
 httpx
+redis
+sendgrid

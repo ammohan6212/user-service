@@ -91,17 +91,52 @@ def verify_otp_and_register(request: VerifyOtpRequest, db: Session = Depends(get
     return {"message": "Sell"}
 
 
-@app.post("/register")
-def register(request: RegisterRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == request.username).first()
-    if user:
-        raise HTTPException(status_code=400, detail="Username already registered")
+@app.post("/start-user-registration")
+def start_user_registration(request: StartRegistrationRequest, db: Session = Depends(get_db)):
+    # Check if username already registered
+    existing_user = db.query(User).filter(User.username == request.username).first()
+    if existing_user:
+        raise HTTPException(status_code=409, detail="Username already registered")
+
+    # Check if email already registered
+    existing_email = db.query(User).filter(User.email == request.email).first()
+    if existing_email:
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    # Generate OTP and store it
+    otp = generate_otp()
+    store_otp(request.email, otp)
+
+    # Send OTP via email
+    status_code = send_email_otp_gmail(request.email, otp)
+    if status_code != 200:
+        raise HTTPException(status_code=500, detail="Failed to send OTP email")
+
+    return {"message": "OTP sent to your email."}
+
+@app.post("/verify-user-otp")
+def verify_user_otp_and_register(request: VerifyOtpRequest, db: Session = Depends(get_db)):
+    # Check OTP validity (401 = Unauthorized)
+    if not verify_otp(request.email, request.otp, delete_on_success=False):
+        raise HTTPException(status_code=401, detail="Invalid or expired OTP")
+
+    # Delete OTP after success
+    verify_otp(request.email, request.otp, delete_on_success=True)
+
+    # Register User
     hashed_password = pwd_context.hash(request.password)
-    new_user = User(username=request.username, email=request.email, hashed_password=hashed_password)
+    new_user = User(
+        username=request.username,
+        email=request.email,
+        hashed_password=hashed_password
+    )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    return {"message": "User registered successfully"}
+
+    return {"message": "User registered successfully!"}
+
+
 
 @app.post("/login")
 def login(request: LoginRequest, db: Session = Depends(get_db)):

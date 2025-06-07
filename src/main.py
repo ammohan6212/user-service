@@ -42,32 +42,45 @@ class VerifyOtpRequest(BaseModel):
 
 
 
-
 @app.post("/start-registration")
-def start_registration(request: StartRegistrationRequest):
+def start_registration(request: StartRegistrationRequest, db: Session = Depends(get_db)):
+    # 1️⃣ Check if email already registered
+    existing_email = db.query(Seller).filter(Seller.email == request.email).first()
+    if existing_email:
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    # 2️⃣ Generate OTP and store it
     otp = generate_otp()
     store_otp(request.email, otp)
-    status_code = send_email_otp_gmail(request.email, otp)
 
+    # 3️⃣ Send OTP via email
+    status_code = send_email_otp_gmail(request.email, otp)
     if status_code != 200:
         raise HTTPException(status_code=500, detail="Failed to send OTP email")
 
+    # 4️⃣ Return success message
     return {"message": "OTP sent to your email."}
+
 
 @app.post("/verify-otp")
 def verify_otp_and_register(request: VerifyOtpRequest, db: Session = Depends(get_db)):
     # Check if OTP is valid, don't delete yet
+    # Check OTP validity (401 = Unauthorized, since OTP is part of authentication process)
     if not verify_otp(request.email, request.otp, delete_on_success=False):
-        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+        raise HTTPException(status_code=401, detail="Invalid or expired OTP")
 
     # Check if username already exists
+    # 409 Conflict is ideal here: resource conflict (username already used)
     existing_user = db.query(Seller).filter(Seller.username == request.username).first()
     if existing_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
-    
+        raise HTTPException(status_code=409, detail="Username already registered")
+
+    # Check if email already exists
+    # Again, 409 Conflict (email already used)
     existing_email = db.query(Seller).filter(Seller.email == request.email).first()
     if existing_email:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=409, detail="Email already registered")
+
 
     # All good, now delete OTP and register seller
     verify_otp(request.email, request.otp, delete_on_success=True)
@@ -83,7 +96,7 @@ def verify_otp_and_register(request: VerifyOtpRequest, db: Session = Depends(get
     db.commit()
     db.refresh(new_seller)
 
-    return {"message": "Seller registered successfully!"}
+    return {"message": "Sell"}
 
 
 @app.post("/register")

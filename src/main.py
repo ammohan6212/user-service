@@ -56,14 +56,21 @@ def start_registration(request: StartRegistrationRequest):
 
 @app.post("/verify-otp")
 def verify_otp_and_register(request: VerifyOtpRequest, db: Session = Depends(get_db)):
-    # Check if OTP is valid
-    if not verify_otp(request.email, request.otp):
+    # Check if OTP is valid, don't delete yet
+    if not verify_otp(request.email, request.otp, delete_on_success=False):
         raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 
     # Check if username already exists
     existing_user = db.query(Seller).filter(Seller.username == request.username).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already registered")
+    
+    existing_email = db.query(Seller).filter(Seller.email == request.email).first()
+    if existing_email:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    # All good, now delete OTP and register seller
+    verify_otp(request.email, request.otp, delete_on_success=True)
 
     # Register the seller
     hashed_password = pwd_context.hash(request.password)
@@ -77,6 +84,7 @@ def verify_otp_and_register(request: VerifyOtpRequest, db: Session = Depends(get
     db.refresh(new_seller)
 
     return {"message": "Seller registered successfully!"}
+
 
 @app.post("/register")
 def register(request: RegisterRequest, db: Session = Depends(get_db)):

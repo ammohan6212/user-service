@@ -46,9 +46,10 @@ def send_email_otp_gmail(receiver_email, otp):
         print(f"Error sending OTP to {receiver_email}: {e}")
         return 500
 
-def verify_otp(email, otp_to_check):
+def verify_otp(email, otp_to_check, delete_on_success=False):
     """
     Verify OTP stored in Redis.
+    If delete_on_success is True, delete the OTP only when verified.
     """
     key = f"otp:{email}"
     stored_otp = redis_client.get(key)
@@ -56,9 +57,11 @@ def verify_otp(email, otp_to_check):
         print("OTP expired or not found")
         return False
     if stored_otp == otp_to_check:
-        redis_client.delete(key)
+        if delete_on_success:
+            redis_client.delete(key)
         print("OTP verified successfully")
         return True
     else:
         print("Invalid OTP")
         return False
+

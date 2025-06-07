@@ -32,7 +32,9 @@ class LoginRequest(BaseModel):
     password: str
 
 class StartRegistrationRequest(BaseModel):
+    username: str
     email: EmailStr
+
 
 class VerifyOtpRequest(BaseModel):
     username: str
@@ -45,6 +47,10 @@ class VerifyOtpRequest(BaseModel):
 @app.post("/start-registration")
 def start_registration(request: StartRegistrationRequest, db: Session = Depends(get_db)):
     # 1️⃣ Check if email already registered
+    existing_user = db.query(Seller).filter(Seller.username == request.username).first()
+    if existing_user:
+        raise HTTPException(status_code=409, detail="Username already registered")
+    
     existing_email = db.query(Seller).filter(Seller.email == request.email).first()
     if existing_email:
         raise HTTPException(status_code=409, detail="Email already registered")
@@ -68,20 +74,6 @@ def verify_otp_and_register(request: VerifyOtpRequest, db: Session = Depends(get
     # Check OTP validity (401 = Unauthorized, since OTP is part of authentication process)
     if not verify_otp(request.email, request.otp, delete_on_success=False):
         raise HTTPException(status_code=401, detail="Invalid or expired OTP")
-
-    # Check if username already exists
-    # 409 Conflict is ideal here: resource conflict (username already used)
-    existing_user = db.query(Seller).filter(Seller.username == request.username).first()
-    if existing_user:
-        raise HTTPException(status_code=409, detail="Username already registered")
-
-    # Check if email already exists
-    # Again, 409 Conflict (email already used)
-    existing_email = db.query(Seller).filter(Seller.email == request.email).first()
-    if existing_email:
-        raise HTTPException(status_code=409, detail="Email already registered")
-
-
     # All good, now delete OTP and register seller
     verify_otp(request.email, request.otp, delete_on_success=True)
 

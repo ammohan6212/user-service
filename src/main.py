@@ -43,6 +43,17 @@ class VerifyOtpRequest(BaseModel):
     otp: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class VerifyForgotPasswordOtpRequest(BaseModel):
+    email: EmailStr
+    otp: str
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    new_password: str
+
 
 @app.post("/start-registration")
 def start_registration(request: StartRegistrationRequest, db: Session = Depends(get_db)):
@@ -151,6 +162,94 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     }
 
 
+@app.post("/forgot-password")
+def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    # Check if email exists
+    user = db.query(User).filter(User.email == request.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    # Generate OTP
+    otp = generate_otp()
+    store_otp(request.email, otp)
+
+    # Send OTP via email
+    status_code = send_email_otp_gmail(request.email, otp)
+    if status_code != 200:
+        raise HTTPException(status_code=500, detail="Failed to send OTP email")
+
+    return {"message": "OTP sent to your email."}
+
+
+@app.post("/verify-otp")
+def verify_forgot_password_otp(request: VerifyForgotPasswordOtpRequest):
+    if not verify_otp(request.email, request.otp, delete_on_success=False):
+        raise HTTPException(status_code=401, detail="Invalid or expired OTP")
+
+    # Delete OTP after success
+    verify_otp(request.email, request.otp, delete_on_success=True)
+
+    # Allow reset
+    return {"message": "OTP verified. You can now reset your password."}
+
+
+@app.post("/reset-password")
+def reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == request.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    hashed_password = pwd_context.hash(request.new_password)
+    user.hashed_password = hashed_password
+    db.commit()
+
+    return {"message": "Password reset successfully!"}
+
+
+@app.post("/seller-forgot-password")
+def seller_forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    seller = db.query(Seller).filter(Seller.email == request.email).first()
+    if not seller:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    otp = generate_otp()
+    store_otp(request.email, otp)
+
+    status_code = send_email_otp_gmail(request.email, otp)
+    if status_code != 200:
+        raise HTTPException(status_code=500, detail="Failed to send OTP email")
+
+    return {"message": "OTP sent to your email."}
+
+
+@app.post("/seller-verify-otp")
+def seller_verify_forgot_password_otp(request: VerifyForgotPasswordOtpRequest):
+    if not verify_otp(request.email, request.otp, delete_on_success=False):
+        raise HTTPException(status_code=401, detail="Invalid or expired OTP")
+
+    verify_otp(request.email, request.otp, delete_on_success=True)
+
+    return {"message": "OTP verified. You can now reset your password."}
+
+
+@app.post("/seller-reset-password")
+def seller_reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db)):
+    seller = db.query(Seller).filter(Seller.email == request.email).first()
+    if not seller:
+        raise HTTPException(status_code=404, detail="Seller not found")
+
+    hashed_password = pwd_context.hash(request.new_password)
+    seller.hashed_password = hashed_password
+    db.commit()
+
+    return {"message": "Password reset successfully!"}
+
+
+
+
+
+
+
 # @app.post("/seller-register")
 # def register(request: RegisterRequest, db: Session = Depends(get_db)):
 #     user = db.query(Seller).filter(Seller.username == request.username).first()
@@ -162,6 +261,9 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 #     db.commit()
 #     db.refresh(new_user)
 #     return {"message": "seller registered successfully"}
+
+
+
 
 @app.post("/seller-login")
 def login(request: LoginRequest, db: Session = Depends(get_db)):

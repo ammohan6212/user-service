@@ -141,6 +141,7 @@ def start_user_registration(request: StartRegistrationRequest, db: Session = Dep
 @app.post("/verify-user-otp")
 def verify_user_otp_and_register(request: VerifyOtpRequest, db: Session = Depends(get_db)):
     # Check OTP validity (401 = Unauthorized)
+    print("the recieved is ",request.json())
     if not verify_otp(request.email, request.otp, delete_on_success=False):
         raise HTTPException(status_code=401, detail="Invalid or expired OTP")
 

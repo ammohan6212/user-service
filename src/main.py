@@ -43,7 +43,7 @@ class VerifyOtpRequest(BaseModel):
 
 
 
-@app.post("/api/start-registration")
+@app.post("/start-registration")
 def start_registration(request: StartRegistrationRequest):
     otp = generate_otp()
     store_otp(request.email, otp)
@@ -54,7 +54,7 @@ def start_registration(request: StartRegistrationRequest):
 
     return {"message": "OTP sent to your email."}
 
-@app.post("/api/verify-otp")
+@app.post("/verify-otp")
 def verify_otp_and_register(request: VerifyOtpRequest, db: Session = Depends(get_db)):
     # Check if OTP is valid
     if not verify_otp(request.email, request.otp):

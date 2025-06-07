@@ -138,7 +138,7 @@ def start_user_registration(request: StartRegistrationRequest, db: Session = Dep
 
     return {"message": "OTP sent to your email."}
 
-@app.post("/verify-user-otp")
+@app.post("/user-register-otp")
 def verify_user_otp_and_register(request: VerifyOtpRequest, db: Session = Depends(get_db)):
     # Check OTP validity (401 = Unauthorized)
     print("the recieved is ",request.json())

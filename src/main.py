@@ -209,6 +209,7 @@ def verify_forgot_password_otp(request: VerifyForgotPasswordOtpRequest):
 
 @app.post("/reset-user-password")
 def reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db)):
+    print("username and password are ",request.json())
     user = db.query(User).filter(User.email == request.email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

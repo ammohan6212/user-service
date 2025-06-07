@@ -49,7 +49,7 @@ def start_registration(request: StartRegistrationRequest):
     store_otp(request.email, otp)
     status_code = send_email_otp_gmail(request.email, otp)
 
-    if status_code != 202:
+    if status_code != 200:
         raise HTTPException(status_code=500, detail="Failed to send OTP email")
 
     return {"message": "OTP sent to your email."}

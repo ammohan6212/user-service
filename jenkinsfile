@@ -25,7 +25,7 @@ pipeline {
             }
         }
         stage("Development Workflow") {
-            agent any
+             
             when {
                 branch 'dev'
             }
@@ -43,7 +43,7 @@ pipeline {
                     }
                 }
                 stage("Linting the Code and terraform linting and kubernetes linting and  docker linting") {
-                    agent { label 'security-agent' }
+                     
                     steps {
                         runLinter(env.DETECTED_LANG)
                         runInfrastructureLinting('terraform/')
@@ -52,13 +52,13 @@ pipeline {
                     }
                 }
                 stage("Secrets Detection") {
-                    agent { label 'security-agent' }
+                     
                     steps {
                         performSecretsDetection('.') // Scan the entire workspace
                     }
                 }
                 stage("Install Dependencies and dependency scanning and type checking and unit tests and code coverage calcualtion ") {
-                    agent { label 'security-agent' }
+                     
                     steps {
                         installAppDependencies(env.DETECTED_LANG)
                         performDependencyScan(env.DETECTED_LANG)
@@ -68,7 +68,7 @@ pipeline {
                     }
                 }
                 stage("sonarqube and Mutation Testing and snapshot and component testing at Dev") {
-                    agent { label 'security-agent' }
+                     
                     steps {
                         runSonarQubeScan(env.SONAR_PROJECT_KEY)
                         runMutationTests(env.DETECTED_LANG)
@@ -77,12 +77,13 @@ pipeline {
                     }
                 }
                 stage("Building the Application") {
+                     
                     steps {
                         buildApplication(env.DETECTED_LANG)
                     }
                 }
                 stage("Create Archiving File and push the artifact ") {
-                    agent { label 'security-agent' }
+                     
                         steps {
                             script {
                                 try {
@@ -96,7 +97,7 @@ pipeline {
                         }
                 }
                 stage("Perform building and  docker linting Container Scanning using trivy and syft and docker scout and Dockle and snyk at Test Env") {
-                    agent { label 'security-agent' }
+                     
                         steps {
                             buildDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}", env.version, '.')
                             validateDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
@@ -108,7 +109,7 @@ pipeline {
                         }
                 }
                 stage("Perform Integration and ui/component testingand static security analysis and chaos testing with Docker Containers") {
-                    agent { label 'security-agent' }
+                     
                     steps {
                         integrationWithDocker()
                         runUiComponentTests(env.DETECTED_LANG)
@@ -117,13 +118,13 @@ pipeline {
                     }
                 }
                 stage("Push Docker Image to dev env Registry") {
-                    agent { label 'security-agent' }
+                     
                     steps {
                         pushDockerImageToRegistry("${env.docker_registr}", "${env.docker_credentials}", "${env. DOCKER_USERNAME}${env.service_name}-${env.BRANCH_NAME}:${env.version}")
                     }
                 }
                 stage("Deploy to Dev") {
-                    agent { label 'security-agent' }
+                     
                         steps {
                             script {
                                 try {
@@ -148,7 +149,7 @@ pipeline {
                 }
 
                 stage("Perform Smoke Testing and sanity testing and APi testing and integratio testing andlight ui test and regression testing feature flag and chaos and security After Dev Deploy") {
-                    agent { label 'security-agent' }
+                     
                     steps {
                         performSmokeTesting(env.DETECTED_LANG)
                         performSanityTesting(env.DETECTED_LANG)
@@ -163,22 +164,25 @@ pipeline {
                     }
                 }                
                 stage("Perform Logging and Monitoring Checks After Dev Deploy") {
+                     
                     steps {
                         performLoggingMonitoringChecks()
                     }
                 }
                 stage("Need the manual approval to complete the dev env"){
+                     
                     steps{
-                        sendEmailNotification('Alert', env.RECIPIENTS)
+                        sendEmailNotification('Alert', env.notificationRecipients)
                     }
                 }
                 stage("Manual Approval for Dev Stage") {
+                     
                     steps {
                         input message: "Does everything working fine here", ok: "Deploy Now", submitter: "manager,admin"
                     }
                 }
                 stage("Generate Version File Dev Env") {
-                    agent { label 'security-agent'} // Use a specific agent if needed
+                      // Use a specific agent if needed
                     steps {
                         generateVersionFile('gcp', "${env.bucket_name}", "${gcp_credid}")
 
@@ -193,7 +197,7 @@ pipeline {
             stages {
                 stage("send the alert mail to start the test env"){
                     steps{
-                        sendEmailNotification('Alert', env.RECIPIENTS)
+                        sendEmailNotification('Alert', env.notificationRecipients)
                     }
                 }
                 stage("Manual Approval to Start Test Env") {
@@ -208,8 +212,12 @@ pipeline {
                         }
                     }
                 }
+                stage("Detect Programming Language") {
+                    steps {
+                        detectLanguage() // Calls vars/detectLanguage.groovy
+                    }
+                }
                 stage("Static Code Analysis and unit tests and code coverage and dependencies and dependency check at Test") {
-                    agent { label 'security-agent' }
                     steps {
                         runUnitTests(env.DETECTED_LANG)
                         calculateCodeCoverage(env.DETECTED_LANG)
@@ -219,14 +227,12 @@ pipeline {
                     }
                 }
                 stage("Create Archiving File and push the artifact  at Test Stage") {
-                    agent { label 'security-agent' }
                     steps {
                         createArchive("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", 'src/')
                         pushArtifact("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", "s3://${env.AWS_S3_BUCKET}/${env.AWS_S3_PATH}")
                     }
                 }
                 stage("Perform building and  docker linting Container Scanning using trivy and syft and docker scout and Dockle and snyk at Test Env") {
-                    agent { label 'security-agent' }
                     steps {
                         buildDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}", env.VERSION_TAG, '.')
                         validateDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
@@ -238,13 +244,11 @@ pipeline {
                     }
                 }
                 stage("Push Docker Image to Preprod Registry") {
-                    agent { label 'security-agent' }
                     steps {
                         pushDockerImageToRegistry("${env.docker_registr}", "${env.docker_credentials}", "${env. DOCKER_USERNAME}${env.service_name}-${env.BRANCH_NAME}:${env.version}")
                     }
                 }
                 stage("Deploy to test") {
-                    agent { label 'security-agent' }
                         steps {
                             script {
                                 try {
@@ -269,7 +273,6 @@ pipeline {
                 }
 
                 stage("Smoke Test and sanity and integration and functional and api and regression in Test Env") {
-                    agent { label 'security-agent' }
                     steps {
                         performSmokeTesting(env.DETECTED_LANG)
                         performSanityTesting(env.DETECTED_LANG)
@@ -282,14 +285,13 @@ pipeline {
                     }
                 }
                 stage("Generate Version File Test Env") {
-                    agent { label 'security-agent' }
                     steps {
                         generateVersionFile('gcp', "${env.bucket_name}", "${gcp_credid}")
                     }
                 }
                 stage("Need the manual approval to complete the test env"){
                     steps{
-                        sendEmailNotification('Alert', env.RECIPIENTS)
+                        sendEmailNotification('Alert', env.notificationRecipients)
                     }
                 }
                 stage("Approval for Test Success") {
@@ -344,7 +346,6 @@ pipeline {
                     }
                 }
                 stage("Static Code Analysis and unit test and code coverage at Staging") {
-                    agent { label 'security-agent' }
                     steps {
                         runSonarQubeScan(env.SONAR_PROJECT_KEY)
                         runUnitTests(env.DETECTED_LANG)
@@ -352,21 +353,18 @@ pipeline {
                     }
                 }
                 stage("Install Dependencies and Scan Dependencies at Staging") {
-                    agent { label 'security-agent' }
                     steps {
                         installAppDependencies(env.DETECTED_LANG)
                         performDependencyScan(env.DETECTED_LANG)
                     }
                 }
                 stage("Create Archiving File and push the artifact at Staging Env") {
-                    agent { label 'security-agent' }
                     steps {
                         createArchive("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", 'src/')
                         pushArtifact("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", "s3://${env.AWS_S3_BUCKET}/${env.AWS_S3_PATH}")
                     }
                 }
                 stage("Perform build and   docker linting Container Scanning using trivy and syft and docker scout and Dockle and snyk at Test Env") {
-                    agent { label 'security-agent' }
                     steps {
                         buildDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}", env.VERSION_TAG, '.')
                         validateDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
@@ -379,7 +377,7 @@ pipeline {
                 }
                 stage("send the notification to CAB team to verify the deployment"){
                     steps{
-                        sendEmailNotification('Alert', env.RECIPIENTS)
+                        sendEmailNotification('Alert', env.notificationRecipients)
                     }
                 }
                 stage("need the CAB approvals before deplyign to the production"){
@@ -392,7 +390,7 @@ pipeline {
                 
                 stage("Need the manual approval from manager and stakeholders to deploy the application into prod"){
                     steps{
-                        sendEmailNotification('Alert', env.RECIPIENTS)
+                        sendEmailNotification('Alert', env.notificationRecipients)
                     }
                 }
                 stage("need approvals to next stage"){
@@ -403,13 +401,12 @@ pipeline {
                     }
                 }
                 stage("Push Docker Image to stag Registry") {
-                    agent { label 'security-agent' }
                     steps {
                         pushDockerImageToRegistry("${env.docker_registr}", "${env.docker_credentials}", "${env. DOCKER_USERNAME}${env.service_name}-${env.BRANCH_NAME}:${env.version}")
                     }
                 }
                 stage("Deploy to prod at peak off-hours") {
-                    agent { label 'security-agent' }
+                     
                         steps {
                             script {
                                 try {
@@ -434,7 +431,7 @@ pipeline {
                 }
 
                 stage("Smoke Test and sanity test and synthatic test and  in preProduction") {
-                    agent { label 'security-agent' }
+                     
                     steps {
                         performSmokeTesting(env.DETECTED_LANG)
                         performLoadPerformanceTesting(env.DETECTED_LANG)
@@ -471,13 +468,13 @@ pipeline {
                     }
                 }
                 stage("Generate Version File preprod Env") {
-                    agent { label 'security-agent' }
+                     
                     steps {
                         generateVersionFile('gcp', "${env.bucket_name}", "${gcp_credid}")
                     }
                 }
                 stage("Manual Verification of Production Deployment") {
-                    agent { label 'security-agent' }
+                     
                     steps {
                         script {
                             env.ROLLBACK_DECISION = input(
@@ -532,16 +529,16 @@ pipeline {
             cleanWs() 
         }
         success {
-            sendEmailNotification('SUCCESS', env.RECIPIENTS)
+            sendEmailNotification('SUCCESS', env.notificationRecipients)
         }
         unstable {
-            sendEmailNotification('UNSTABLE', env.RECIPIENTS)
+            sendEmailNotification('UNSTABLE', env.notificationRecipients)
         }
         failure {
-            sendEmailNotification('FAILURE', env.RECIPIENTS)
+            sendEmailNotification('FAILURE', env.notificationRecipients)
         }
         aborted {
-            sendEmailNotification('ABORTED', env.RECIPIENTS)
+            sendEmailNotification('ABORTED', env.notificationRecipients)
         }
     }
 }

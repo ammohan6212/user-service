@@ -1,0 +1,16 @@
+{
+    "github_repo": "https://github.com/ammohan6212/frontend2.git",
+    "serviceName": "frontend",
+    "notificationRecipients": "dev-team@example.com,qa-team@example.com",
+    "docker_username": "dockeruser123",
+    "docker_credentials": "docker-credentials-id",
+    "docker_registry": "docker.io/ammohan6212",
+    "kubernetes_endpoint": "https://34.121.208.218",
+    "bucket_name": "example-artifact-bucket",
+    "bucket_path": "artifacts/builds/example-service",
+    "kubernetesClusterName": "example-cluster",
+    "kubernetesCredentialsId": "k8s-credentials-id",
+    "kubernetesCaCertificate": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t...==",
+    "gcp_credid": "gcp-credentials-id",
+    "aws_credid": "aws-credentials-id"
+}

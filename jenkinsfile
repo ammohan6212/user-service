@@ -1,643 +1,547 @@
-pipeline{
-    agent any
+@Library('microservice@main') _ 
 
-    stages{
-        stage("Clone the Repository") {
+pipeline {
+    agent any
+    stages {
+        stage("Load project configuration"){
+            steps{
+                script{
+                    def projectConfig = readJSON file: 'config.json'
+                        env.github_repo=projectConfig.github_repo
+                        env.service_name = projectConfig.serviceName
+                        env.notificationRecipients = projectConfig.notificationRecipients
+                        env.docker_username=projectConfig.docker_username
+                        env.kubernetes_endpoint=projectConfig.kubernetes_endpoint
+                        env.bucket_name=projectConfig.bucket_name 
+                        env.bucket_path=projectConfig.bucket_path   
+                        env.docker_credentials=projectConfig.docker_credentials
+                        env.docker_registry=projectConfig.docker_registry
+                        env.kubernetesClusterName=projectConfig.kubernetesClusterName
+                        env.kubernetesCredentialsId=projectConfig.kubernetesCredentialsId
+                        env.kubernetesCaCertificate=projectConfig.kubernetesCaCertificate
+                        env.gcp_credid=projectConfig.gcp_credid
+                        env.aws_credid=projectConfig.aws_credid
+                }
+            }
+        }
+        stage("Development Workflow") {
             agent any
             when {
                 branch 'dev'
             }
-            steps {
-                script{
-                    // Clone the dev branch
-                    git branch: 'dev',url: "https://github.com/ammohan6212/front-end.git"
-                    // git branch: 'dev',credentialsId: 'github-token',url: "https://github.com/ammohan6212/front-end.git"
+            stages {
+                stage("Clone Dev Repo & Get Version") {
+                    steps {
+                        script{
+                            cloneRepoAndGetVersion(env.BRANCH_NAME, env.github_repo)
+                        }
+                    }
+                }
+                stage("Detect Programming Language") {
+                    steps {
+                        detectLanguage() // Calls vars/detectLanguage.groovy
+                    }
+                }
+                stage("Linting the Code and terraform linting and kubernetes linting and  docker linting") {
+                    agent { label 'security-agent' }
+                    steps {
+                        runLinter(env.DETECTED_LANG)
+                        runInfrastructureLinting('terraform/')
+                        runKubernetesLinting('kubernetes/') 
+                        validateDockerImage('Dockerfile')
+                    }
+                }
+                stage("Secrets Detection") {
+                    agent { label 'security-agent' }
+                    steps {
+                        performSecretsDetection('.') // Scan the entire workspace
+                    }
+                }
+                stage("Install Dependencies and dependency scanning and type checking and unit tests and code coverage calcualtion ") {
+                    agent { label 'security-agent' }
+                    steps {
+                        installAppDependencies(env.DETECTED_LANG)
+                        performDependencyScan(env.DETECTED_LANG)
+                        runTypeChecks(env.DETECTED_LANG)
+                        runUnitTests(env.DETECTED_LANG)
+                        calculateCodeCoverage(env.DETECTED_LANG)
+                    }
+                }
+                stage("sonarqube and Mutation Testing and snapshot and component testing at Dev") {
+                    agent { label 'security-agent' }
+                    steps {
+                        runSonarQubeScan(env.SONAR_PROJECT_KEY)
+                        runMutationTests(env.DETECTED_LANG)
+                        runSnapshotTests(env.DETECTED_LANG)
+                        runComponentTests(env.DETECTED_LANG)
+                    }
+                }
+                stage("Building the Application") {
+                    steps {
+                        buildApplication(env.DETECTED_LANG)
+                    }
+                }
+                stage("Create Archiving File and push the artifact ") {
+                    agent { label 'security-agent' }
+                        steps {
+                            script {
+                                try {
+                                    createArchive("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", 'src/')
+                                    pushArtifact("${env.service_name}-${env.version}-${env.BRANCH_NAME}.zip", "s3://${env.AWS_S3_BUCKET}/${env.AWS_S3_PATH}")
+                                } catch (err) {
+                                    echo "failed to push the artifact to specific repository ${err}"
+                                    error("Stopping pipeline")
+                                }
+                            }
+                        }
+                }
+                stage("Perform building and  docker linting Container Scanning using trivy and syft and docker scout and Dockle and snyk at Test Env") {
+                    agent { label 'security-agent' }
+                        steps {
+                            buildDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}", env.version, '.')
+                            validateDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                            scanContainerTrivy("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                            scanContainerSyftDockle("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                            scanContainerSnyk("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}", "Dockerfile")
+                            scanContainerDockerScout("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                            scanContainerGrype("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        }
+                }
+                stage("Perform Integration and ui/component testingand static security analysis and chaos testing with Docker Containers") {
+                    agent { label 'security-agent' }
+                    steps {
+                        integrationWithDocker()
+                        runUiComponentTests(env.DETECTED_LANG)
+                        performStaticSecurityAnalysis(env.DETECTED_LANG)
+                        runChaosTests(env.DETECTED_LANG)
+                    }
+                }
+                stage("Push Docker Image to dev env Registry") {
+                    agent { label 'security-agent' }
+                    steps {
+                        pushDockerImageToRegistry("${env.docker_registr}", "${env.docker_credentials}", "${env. DOCKER_USERNAME}${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                    }
+                }
+                stage("Deploy to Dev") {
+                    agent { label 'security-agent' }
+                        steps {
+                            script {
+                                try {
+                                    withKubeConfig(
+                                        caCertificate: env.kubernetesCaCertificate, // Now dynamic
+                                        clusterName: env.kubernetesClusterName,     // Now dynamic
+                                        contextName: '',
+                                        credentialsId: env.kubernetesCredentialsId, // Now dynamic
+                                        namespace: "${env.BRANCH_NAME}",
+                                        restrictKubeConfigAccess: false,
+                                        serverUrl: env.kubernetes_endpoint
+                                    ) {
+                                        // Change Kubernetes service selector to route traffic to Green
+                                        sh """kubectl apply -f blue-load.yml -n ${KUBE_NAMESPACE}"""
+                                    }
+                                } catch (err) {
+                                    echo "failed to deploy to the production ${err}"
+                                    error("Stopping pipeline")
+                                }
+                            }
+                        }
+                }
 
-                    // Fetch all tags
-                    sh 'git fetch --tags'
+                stage("Perform Smoke Testing and sanity testing and APi testing and integratio testing andlight ui test and regression testing feature flag and chaos and security After Dev Deploy") {
+                    agent { label 'security-agent' }
+                    steps {
+                        performSmokeTesting(env.DETECTED_LANG)
+                        performSanityTesting(env.DETECTED_LANG)
+                        performApiTesting(env.DETECTED_LANG)
+                        performIntegrationTesting(env.DETECTED_LANG)
+                        performLightUiTests(env.DETECTED_LANG)
+                        performRegressionTesting(env.DETECTED_LANG)
+                        performFeatureFlagChecks(env.DETECTED_LANG)
+                        performSecurityChecks(env.DETECTED_LANG)
+                        performChaosTestingAfterDeploy(env.DETECTED_LANG)
+                        performLoadPerformanceTesting(env.DETECTED_LANG)
+                    }
+                }                
+                stage("Perform Logging and Monitoring Checks After Dev Deploy") {
+                    steps {
+                        performLoggingMonitoringChecks()
+                    }
+                }
+                stage("Need the manual approval to complete the dev env"){
+                    steps{
+                        sendEmailNotification('Alert', env.RECIPIENTS)
+                    }
+                }
+                stage("Manual Approval for Dev Stage") {
+                    steps {
+                        input message: "Does everything working fine here", ok: "Deploy Now", submitter: "manager,admin"
+                    }
+                }
+                stage("Generate Version File Dev Env") {
+                    agent { label 'security-agent'} // Use a specific agent if needed
+                    steps {
+                        generateVersionFile('gcp', "${env.bucket_name}", "${gcp_credid}")
 
-                    // Get the latest tag correctly
-                    def version = sh(
-                        script: "git describe --tags \$(git rev-list --tags --max-count=1)",
-                        returnStdout: true
-                    ).trim()
-                    
-                    // Make version available as environment variable
-                    env.version = version
+                    }
+                }
+            }
+        }
+        stage("Test Environment Workflow") {
+            when {
+                branch 'test'
+            }
+            stages {
+                stage("send the alert mail to start the test env"){
+                    steps{
+                        sendEmailNotification('Alert', env.RECIPIENTS)
+                    }
+                }
+                stage("Manual Approval to Start Test Env") {
+                    steps {
+                        input message: "Do you approve deployment to test?", ok: "Deploy Now", submitter: "manager,admin"
+                    }
+                }
+                stage("Clone Repo with Test Branch & Get Version") {
+                    steps {
+                        script{
+                            cloneRepoAndGetVersion(env.BRANCH_NAME, env.github_repo)
+                        }
+                    }
+                }
+                stage("Static Code Analysis and unit tests and code coverage and dependencies and dependency check at Test") {
+                    agent { label 'security-agent' }
+                    steps {
+                        runUnitTests(env.DETECTED_LANG)
+                        calculateCodeCoverage(env.DETECTED_LANG)
+                        runSonarQubeScan(env.SONAR_PROJECT_KEY)
+                        installAppDependencies(env.DETECTED_LANG)
+                        performDependencyScan(env.DETECTED_LANG)
+                    }
+                }
+                stage("Create Archiving File and push the artifact  at Test Stage") {
+                    agent { label 'security-agent' }
+                    steps {
+                        createArchive("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", 'src/')
+                        pushArtifact("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", "s3://${env.AWS_S3_BUCKET}/${env.AWS_S3_PATH}")
+                    }
+                }
+                stage("Perform building and  docker linting Container Scanning using trivy and syft and docker scout and Dockle and snyk at Test Env") {
+                    agent { label 'security-agent' }
+                    steps {
+                        buildDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}", env.VERSION_TAG, '.')
+                        validateDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        scanContainerTrivy("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        scanContainerSyftDockle("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        scanContainerSnyk("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}", "Dockerfile")
+                        scanContainerDockerScout("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        scanContainerGrype("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                    }
+                }
+                stage("Push Docker Image to Preprod Registry") {
+                    agent { label 'security-agent' }
+                    steps {
+                        pushDockerImageToRegistry("${env.docker_registr}", "${env.docker_credentials}", "${env. DOCKER_USERNAME}${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                    }
+                }
+                stage("Deploy to test") {
+                    agent { label 'security-agent' }
+                        steps {
+                            script {
+                                try {
+                                    withKubeConfig(
+                                        caCertificate: env.kubernetesCaCertificate, // Now dynamic
+                                        clusterName: env.kubernetesClusterName,     // Now dynamic
+                                        contextName: '',
+                                        credentialsId: env.kubernetesCredentialsId, // Now dynamic
+                                        namespace: "${env.BRANCH_NAME}",
+                                        restrictKubeConfigAccess: false,
+                                        serverUrl: env.kubernetes_endpoint
+                                    ) {
+                                        // Change Kubernetes service selector to route traffic to Green
+                                        sh """kubectl apply -f blue-load.yml -n ${KUBE_NAMESPACE}"""
+                                    }
+                                } catch (err) {
+                                    echo "failed to deploy to the production ${err}"
+                                    error("Stopping pipeline")
+                                }
+                            }
+                        }
+                }
 
-                    
-                    echo "VERSION=${env.VERSION}"
+                stage("Smoke Test and sanity and integration and functional and api and regression in Test Env") {
+                    agent { label 'security-agent' }
+                    steps {
+                        performSmokeTesting(env.DETECTED_LANG)
+                        performSanityTesting(env.DETECTED_LANG)
+                        performIntegrationTesting(env.DETECTED_LANG)
+                        performApiTesting(env.DETECTED_LANG)
+                        performRegressionTesting(env.DETECTED_LANG)
+                        performDatabaseTesting()
+                        performLoadPerformanceTesting(env.DETECTED_LANG)
+                        performChaosTestingAfterDeploy(env.DETECTED_LANG)
+                    }
+                }
+                stage("Generate Version File Test Env") {
+                    agent { label 'security-agent' }
+                    steps {
+                        generateVersionFile('gcp', "${env.bucket_name}", "${gcp_credid}")
+                    }
+                }
+                stage("Need the manual approval to complete the test env"){
+                    steps{
+                        sendEmailNotification('Alert', env.RECIPIENTS)
+                    }
+                }
+                stage("Approval for Test Success") {
+                    steps {
+                        script {
+                            try {
+                                input message: "Do you approve to proceed to Staging Environment?",
+                                    ok: "Approve",
+                                    submitter: "manager,admin"
+                                echo "Approval granted. Proceeding to Staging Environment."
+                                currentBuild.result = 'SUCCESS'
+                            } catch (err) {
+                                echo "Approval was not granted. Error: ${err}"
+                                currentBuild.result = 'FAILURE'
+                                error("Pipeline failed due to rejection or interruption.")
+                            }
+                        }
+                    }
+                }
+
+            }
+        }
+        stage("deploying the application into prod"){
+            when {
+                branch 'main' // Or 'master'
+            }
+            stages{
+                stage("Approval Before Deploying to Production") {
+                    steps {
+                        input message: "Do you approve deployment to Production?", ok: "Deploy Now", submitter: "manager,admin"
+                    }
+                }
+                stage("create the change request containing what is changing and any DB changes and any downtime and rollback plan if deplyoment failes and deploymentwindow and stakeholders"){
+                    steps{
+                        script{
+                            sh """
+                            create a change request for production deployment
+                            """
+                        }
+                    }
+                }
+                stage("Clone Repo with Main Branch & Get Version") {
+                    steps {
+                        script{
+                            cloneRepoAndGetVersion(env.BRANCH_NAME, env.github_repo)
+                        }
+                    }
+                }
+                stage("Detect Programming Language") {
+                    steps {
+                        detectLanguage() // Calls vars/detectLanguage.groovy
+                    }
+                }
+                stage("Static Code Analysis and unit test and code coverage at Staging") {
+                    agent { label 'security-agent' }
+                    steps {
+                        runSonarQubeScan(env.SONAR_PROJECT_KEY)
+                        runUnitTests(env.DETECTED_LANG)
+                        calculateCodeCoverage(env.DETECTED_LANG)
+                    }
+                }
+                stage("Install Dependencies and Scan Dependencies at Staging") {
+                    agent { label 'security-agent' }
+                    steps {
+                        installAppDependencies(env.DETECTED_LANG)
+                        performDependencyScan(env.DETECTED_LANG)
+                    }
+                }
+                stage("Create Archiving File and push the artifact at Staging Env") {
+                    agent { label 'security-agent' }
+                    steps {
+                        createArchive("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", 'src/')
+                        pushArtifact("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", "s3://${env.AWS_S3_BUCKET}/${env.AWS_S3_PATH}")
+                    }
+                }
+                stage("Perform build and   docker linting Container Scanning using trivy and syft and docker scout and Dockle and snyk at Test Env") {
+                    agent { label 'security-agent' }
+                    steps {
+                        buildDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}", env.VERSION_TAG, '.')
+                        validateDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        scanContainerTrivy("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        scanContainerSyftDockle("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        scanContainerSnyk("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}", "Dockerfile")
+                        scanContainerDockerScout("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        scanContainerGrype("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                    }
+                }
+                stage("send the notification to CAB team to verify the deployment"){
+                    steps{
+                        sendEmailNotification('Alert', env.RECIPIENTS)
+                    }
+                }
+                stage("need the CAB approvals before deplyign to the production"){
+                    steps{
+                        script{
+                            input message: "Do you approve deployment to Production?", ok: "Deploy Now", submitter: "manager,admin"
+                        }
+                    }
                 }
                 
-            }
-        }
+                stage("Need the manual approval from manager and stakeholders to deploy the application into prod"){
+                    steps{
+                        sendEmailNotification('Alert', env.RECIPIENTS)
+                    }
+                }
+                stage("need approvals to next stage"){
+                    steps{
+                        script{
+                            input message: "Do you approve deployment to Production?", ok: "Deploy Now", submitter: "manager,admin"
+                        }
+                    }
+                }
+                stage("Push Docker Image to stag Registry") {
+                    agent { label 'security-agent' }
+                    steps {
+                        pushDockerImageToRegistry("${env.docker_registr}", "${env.docker_credentials}", "${env. DOCKER_USERNAME}${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                    }
+                }
+                stage("Deploy to prod at peak off-hours") {
+                    agent { label 'security-agent' }
+                        steps {
+                            script {
+                                try {
+                                    withKubeConfig(
+                                        caCertificate: env.kubernetesCaCertificate, // Now dynamic
+                                        clusterName: env.kubernetesClusterName,     // Now dynamic
+                                        contextName: '',
+                                        credentialsId: env.kubernetesCredentialsId, // Now dynamic
+                                        namespace: "${env.BRANCH_NAME}",
+                                        restrictKubeConfigAccess: false,
+                                        serverUrl: env.kubernetes_endpoint
+                                    ) {
+                                        // Change Kubernetes service selector to route traffic to Green
+                                        sh """kubectl apply -f blue-load.yml -n ${KUBE_NAMESPACE}"""
+                                    }
+                                } catch (err) {
+                                    echo "failed to deploy to the production ${err}"
+                                    error("Stopping pipeline")
+                                }
+                            }
+                        }
+                }
 
-        stage('get the current application version'){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    echo "VERSION=${env.version}"
-                }
-            }
-        }
-        stage("linting the code"){
-            when{
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    pip install -r  requirements.txt
-                    flake8 src/  
-                    pylint src/   ##we will rate about our code
-                    black src/
-                    """
-                }
-            }
-        }
-        stage("infrastrucure linting"){
-            when {
-                branch 'dev'
-            }
-            steps {
-                script{
-                    sh """
-                    #tflint  terraform/
-                    """
-                }
-            }
-        }
-        stage("perform the code kubeernetes linintg"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    # .gobin/kube-linter kubernetes/
-                    """
-                }
-            }
-        }
-        stage("perform the docker linting"){
-            when{
-                branch 'dev'
-            }
-            steps {
-                script{
-                    sh """
-                    docker pull hadolint/hadolint
-                    docker run --rm -i hadolint/hadolint < dockerfile
+                stage("Smoke Test and sanity test and synthatic test and  in preProduction") {
+                    agent { label 'security-agent' }
+                    steps {
+                        performSmokeTesting(env.DETECTED_LANG)
+                        performLoadPerformanceTesting(env.DETECTED_LANG)
+                        performSanityTesting(env.DETECTED_LANG)
+                        performIntegrationTesting(env.DETECTED_LANG)
+                        performApiTesting(env.DETECTED_LANG)
+                        performRegressionTesting(env.DETECTED_LANG)
+                        performDatabaseTesting()
+                        performChaosTestingAfterDeploy(env.DETECTED_LANG)
 
-                    npm install --global dockerlinter
-                    dockerlinter -f Dockerfile
-                    """
+                    }
                 }
-            }
-        }
-        stage("yaml or json schema valdiation"){
-            when{
-                branch 'dev'
-            }
-            steps {
-                script{
-                    sh """
-                    """
+                stage("is smoke and sanity and synthatic everything is fine"){
+                    steps{
+                        script{
+                            input message: "Do you approve deployment to Production?", ok: "Deploy Now", submitter: "manager,admin"
+                        }
+                    }
                 }
-            }
-        }
-        stage("secretes detection"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    gitleaks detect --source=. --verbose --redact
-                    trufflehog filesystem . --no-update
-                    """
+                stage("monitoring the prod environment"){
+                    steps {
+                        script {
+                            sh """
+                            montoring happens here
+                            """
+                        }
+                    }
                 }
-            }
-        }
-        stage("install the dependencies"){
-            when{
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    pip install -r  requirements.txt
-                    """
+                stage("is monitoring is fine fine"){
+                    steps{
+                        script{
+                            input message: "Do you approve deployment to Production?", ok: "Deploy Now", submitter: "manager,admin"
+                        }
+                    }
                 }
-            }
-        }
-        stage("dependendency scanning or software composition analyssis"){
-            when{
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    pip-audit
-                    bandit -r src/main.py
-                    snyk test --file=requirements.txt
-                    dependency-check.sh  --file=requirements.txt
-                   """
+                stage("Generate Version File preprod Env") {
+                    agent { label 'security-agent' }
+                    steps {
+                        generateVersionFile('gcp', "${env.bucket_name}", "${gcp_credid}")
+                    }
                 }
-            }
-        }
-        stage("type checking"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    mypy src/
-                    pyright src/
-                    """
-                }
-            }
-        }
-        stage("perform the unit tests"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    pytest tests/test.py          
-                    python tests/test_main_unittest.py   ###unittest
-                    """
-                }
-            }
-        }
-         stage("test code coverage calvulation"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script {
-                    sh """
-                    coverage run --source=src -m unittest discover -s tests
-                    coverage run --source=src tests/test_main_unittest.py
-                    coverage run --source=src tests/test.py
-                    pytest --cov=src tests/test_main_unittest.py
-                    pytest --cov=src tests/test.py
-                    """
-                }
-            }
-        }
-        stage("perform the static code analysis using sonarqueb"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    /opt/sonar-scanner/bin/sonar-scanner
-                    """
-                }
-            }
-        }
-        stage("mutation testing"){
-            when {
-                branch 'dev'
-            }
-            steps {
-                script{
-                    sh """
-                    
-                    """
-                }
-            }
-        }
-        stage("snap shot testing"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    pytest
-                    """
-                }
-            }
-        }
-        stage("building the application"){
-            when{
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    """
-                }
-            }
-        }
-        stage("create the archiving file"){
-            when{
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    zip -r src.zip src/
-                    """
-                }
-            }
-        }
-        stage("push the artifact to the nexus or jfrog or other artifact storage platforms"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    """
-                }
-            }
-        }
-        stage("perform the docker image build"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    docker build -t frontend:${env.version} .
-                    """
-                }
-            }
-        }
-        stage("docker linting and  image validation"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    docker image inspect myapp:${env.version}
-                    """
-                }
-            }
-        }
+                stage("Manual Verification of Production Deployment") {
+                    agent { label 'security-agent' }
+                    steps {
+                        script {
+                            env.ROLLBACK_DECISION = input(
+                                id: 'prodVerification',
+                                message: "Is production working correctly?",
+                                parameters: [
+                                    choice(name: 'Decision', choices: ['Proceed', 'Rollback'], description: 'Select rollback if prod is broken')
+                                ]
+                            )
+                            if (env.ROLLBACK_DECISION == 'Rollback') {
+                                echo "⏪ Manual decision: Rolling back to previous version..."
+                                try {
+                                    withKubeConfig(
+                                        caCertificate: env.kubernetesCaCertificate, // Now dynamic
+                                        clusterName: env.kubernetesClusterName,     // Now dynamic
+                                        contextName: '',
+                                        credentialsId: env.kubernetesCredentialsId, // Now dynamic
+                                        namespace: "${env.BRANCH_NAME}",
+                                        restrictKubeConfigAccess: false,
+                                        serverUrl: env.kubernetes_endpoint
+                                    ) {
+                                        sh "kubectl rollout undo deployment/${env.service_name} -n ${env.BRANCH_NAME}"
+                                        sh "kubectl rollout status deployment/${env.service_name} -n ${env.BRANCH_NAME}"
+                                        echo "✅ Rollback completed"
+                                    }
+                                } catch (err) {
+                                    echo "❌ Rollback command failed: ${err.getMessage()}"
+                                }
 
-        stage("perform the container scanning using trivy"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    trivy image --format table frontend:${env.version}       # Table format
-                    trivy image --format json frontend:${env.version}    # JSON format
-                    trivy image --scanners secret --format json --output trivy-secrets.json frontend:${env.version} 
-                    """
+                                // Mark build as failed after rollback
+                                currentBuild.result = 'FAILURE'
+                                error("🔴 Production was marked as broken. Rollback executed. Pipeline failed.")
+                            } else {
+                                echo "✅ Manual verification passed. Continuing with success flow..."
+                            }
+                        }
+                    }
                 }
-            }
-        }
-        stage("perform the container scanning using snyk"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    snyk container test frontend:v1.0.0 --file=Dockerfile
-                    snyk container test frontend:${env.version} 
-                    snyk test --file=Dockerfile 
-                    snyk test --docker your-image:tag
-                    """
-                }
-            }
-        }
-        stage("perform the container scanning using dockerr scout "){
-            when{
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    docker scout quickview frontend:${env.version}   #
-                    docker scout cves frontend:${env.version}
-                    """
+                stage("prod deployment is successful"){
+                    steps{
+                        script{
+                            echo "the production deplyment successful"
+                        }
+                    }
                 }
             }
 
         }
-        stage("perfomr the container scanning using the grype"){
-            when{
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    grype frontend:${env.version}
-                    grype frontend:${env.version} -o table
-                    grype frontend:${env.version} -o json
-                    """
-                }
-            }
+    }
+    post {
+        always {
+            cleanWs() 
         }
-        stag("perform the container scannning using the syft and dockel"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    syft frontend:1.0
-                    dockle frontend:${env.version}
-                    """
-                }
-            }
+        success {
+            sendEmailNotification('SUCCESS', env.RECIPIENTS)
         }
-
-        stage("perform the integration with the docker containers"){
-            when{
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    # 1. Start containers
-                    docker-compose up -d
-                    pytest tests/test_integration.py
-                    docker-compose down
-                    """
-                }
-            }
+        unstable {
+            sendEmailNotification('UNSTABLE', env.RECIPIENTS)
         }
-        
-        stage("Api contract testing"){
-            when{
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    schemathesis run openapi.yaml --base-url=http://localhost:8000
-                    """
-                }
-            }
+        failure {
+            sendEmailNotification('FAILURE', env.RECIPIENTS)
         }
-        stage("Build verification test or smoke test"){
-            when {
-                branch 'dev'
-            }
-            steps {
-                script{
-                     sh """"""
-                }
-            }
+        aborted {
+            sendEmailNotification('ABORTED', env.RECIPIENTS)
         }
-        stage("regressin testing"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """"""
-                }
-            }
-        }
-        stage("ui/componenet testing"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """"""
-                }
-            }
-        }
-        stage("static security analysis"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    bandit -r src/
-                    """
-                }
-            }
-        }
-        stage("chaos testing"){
-            when{
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """
-                    chaos run chaos-experiment.json
-                    """
-                }
-            }
-        }
-        stage("push the docker image to the specified registry"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """"""
-                }
-            }
-        }
-        stage("perform the security scanning analysis"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """"""
-                }
-            }
-        }
-        stage("deploy to dev"){
-            when {
-                branch 'dev'
-            }
-            steps{
-                script{
-                    sh """"""
-                }
-            }
-        }
-        stage("Generate Version File dev env") {
-            agent { label 'security-agent'}
-            when {
-                branch 'dev'
-            }
-            steps {
-                script {
-                    def version = sh(script: "git describe --tags \$(git rev-list --tags --max-count=1)", returnStdout: true).trim()
-                    def commit = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
-                    def branch = 'dev'
-                    def date = sh(script: "date -u +'%Y-%m-%dT%H:%M:%SZ'", returnStdout: true).trim()
-
-                    writeFile file: "version-dev${version}.txt", text: """
-                        VERSION=${version}
-                        BUILD_NUMBER=${env.BUILD_NUMBER}
-                        BUILD_DATE=${date}
-                        GIT_COMMIT=${commit}
-                        GIT_BRANCH=${branch}
-                        BUILD_BY=jenkins
-                    """.stripIndent()
-
-                    echo "Generated version.txt"
-                    sh """
-                    aws s3 cp version-dev${version}.txt s3://your-bucket-name/path/to/version.txt
-                    """
-            }
-         }
-        }
-        stage("deploy to test"){
-            when {
-                branch 'test'
-            }
-            steps{
-                script{
-                    sh """"""
-                }
-            }
-        }
-        stage("Generate Version File dev env") {
-            agent { label 'security-agent'}
-            when {
-                branch 'test'
-            }
-            steps {
-                script {
-                    def version = sh(script: "git describe --tags \$(git rev-list --tags --max-count=1)", returnStdout: true).trim()
-                    def commit = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
-                    def branch = 'test'
-                    def date = sh(script: "date -u +'%Y-%m-%dT%H:%M:%SZ'", returnStdout: true).trim()
-
-                    writeFile file: "version-test${version}.txt", text: """
-                        VERSION=${version}
-                        BUILD_NUMBER=${env.BUILD_NUMBER}
-                        BUILD_DATE=${date}
-                        GIT_COMMIT=${commit}
-                        GIT_BRANCH=${branch}
-                        BUILD_BY=jenkins
-                    """.stripIndent()
-
-                    echo "Generated version.txt"
-                    sh """
-                    aws s3 cp version-test${version}.txt s3://your-bucket-name/path/to/version.txt
-                    """
-            }
-         }
-        }
-        stage("Approval Before  Deploying to stag") {
-        when {
-            branch 'stag' // or 'prod' depending on your naming
-        }
-        steps {
-            script {
-                input message: "Do you approve deployment to stag and send the artifact to the client?",
-                    ok: "Deploy Now",
-                    submitter: "manager,admin" // Optional: restrict who can approve
-            }
-        }
-        }
-
-        stage("deploy to QA"){
-            when {
-                branch 'stag'
-            }
-            steps{
-                script{
-                    sh """"""
-                }
-            }
-        }
-        stage("Generate Version File dev env") {
-            agent { label 'security-agent'}
-            when {
-                branch 'stag'
-            }
-            steps {
-                script {
-                    def version = sh(script: "git describe --tags \$(git rev-list --tags --max-count=1)", returnStdout: true).trim()
-                    def commit = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
-                    def branch = 'stag'
-                    def date = sh(script: "date -u +'%Y-%m-%dT%H:%M:%SZ'", returnStdout: true).trim()
-
-                    writeFile file: "version-stag${version}.txt", text: """
-                        VERSION=${version}
-                        BUILD_NUMBER=${env.BUILD_NUMBER}
-                        BUILD_DATE=${date}
-                        GIT_COMMIT=${commit}
-                        GIT_BRANCH=${branch}
-                        BUILD_BY=jenkins
-                    """.stripIndent()
-
-                    echo "Generated version.txt"
-                    sh """
-                    aws s3 cp version-stag${version}.txt s3://your-bucket-name/path/to/version.txt
-                    """
-            }
-         }
-        }
-        stage("Approval Before Production Deployment") {
-        when {
-            branch 'main' // or 'prod' depending on your naming
-        }
-        steps {
-            script {
-                input message: "Do you approve deployment to stag and send the artifact to the client?",
-                    ok: "Deploy Now",
-                    submitter: "manager,admin" // Optional: restrict who can approve
-            }
-        }
-        }
-        
-        stage("deploy to main"){
-            when{
-                branch 'main'
-            }
-            steps{
-                script{
-                    sh """"""
-                }
-            }
-        }
-        stage("Generate Version File prod env") {
-            agent { label 'security-agent'}
-            when {
-                branch 'main'
-            }
-            steps {
-                script {
-                    def version = sh(script: "git describe --tags \$(git rev-list --tags --max-count=1)", returnStdout: true).trim()
-                    def commit = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
-                    def branch = 'main'
-                    def date = sh(script: "date -u +'%Y-%m-%dT%H:%M:%SZ'", returnStdout: true).trim()
-
-                    writeFile file: "version-main${version}.txt", text: """
-                        VERSION=${version}
-                        BUILD_NUMBER=${env.BUILD_NUMBER}
-                        BUILD_DATE=${date}
-                        GIT_COMMIT=${commit}
-                        GIT_BRANCH=${branch}
-                        BUILD_BY=jenkins
-                    """.stripIndent()
-
-                    echo "Generated version.txt"
-                    sh """
-                    aws s3 cp version-main${version}.txt s3://your-bucket-name/path/to/version.txt
-                    """
-            }
-         }
-        }
-
-
-
-}
+    }
 }

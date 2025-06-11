@@ -1,7 +1,7 @@
 {
-    "github_repo": "https://github.com/ammohan6212/frontend2.git",
-    "serviceName": "frontend",
-    "notificationRecipients": "dev-team@example.com,qa-team@example.com",
+    "github_repo": "https://github.com/ammohan6212/user-service.git",
+    "serviceName": "user-service",
+    "notificationRecipients": "mohan14242@gmail.com",
     "docker_username": "dockeruser123",
     "docker_credentials": "docker-credentials-id",
     "docker_registry": "docker.io/ammohan6212",

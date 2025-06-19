@@ -35,6 +35,13 @@ class StartRegistrationRequest(BaseModel):
     username: str
     email: EmailStr
 
+class SellerLoginResponse(BaseModel):
+    message: str
+    access_token: str
+    token_type: str
+    seller_name: str
+
+
 
 class VerifyOtpRequest(BaseModel):
     username: str
@@ -102,15 +109,18 @@ def verify_otp_and_register(request: VerifyOtpRequest, db: Session = Depends(get
     return {"message": "Sell"}
 
 @app.post("/seller-login")
-def login(request: LoginRequest, db: Session = Depends(get_db)):
+def login(request: SellerLoginResponse, db: Session = Depends(get_db)):
     user = db.query(Seller).filter(Seller.username == request.username).first()
     if not user or not pwd_context.verify(request.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    
     access_token = create_access_token(data={"sub": user.username})
+    
     return {
-        "message": " seller Login successful",
+        "message": "Seller login successful",
         "access_token": access_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "seller_name": user.username  # or use user.full_name if available
     }
 
 

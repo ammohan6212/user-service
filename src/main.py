@@ -108,8 +108,8 @@ def verify_otp_and_register(request: VerifyOtpRequest, db: Session = Depends(get
 
     return {"message": "Sell"}
 
-@app.post("/seller-login")
-def login(request: SellerLoginResponse, db: Session = Depends(get_db)):
+@app.post("/seller-login",response_model=SellerLoginResponse)
+def login(request: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(Seller).filter(Seller.username == request.username).first()
     if not user or not pwd_context.verify(request.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")

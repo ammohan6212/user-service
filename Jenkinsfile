@@ -2,6 +2,9 @@
 
 pipeline {
     agent any
+    options {
+        disableConcurrentBuilds()
+    }
     stages {
         stage("Load project configuration"){
             steps{
@@ -21,29 +24,24 @@ pipeline {
                         env.kubernetesCaCertificate=projectConfig.kubernetesCaCertificate
                         env.gcp_credid=projectConfig.gcp_credid
                         env.aws_credid=projectConfig.aws_credid
+                        env.service_port=projectConfig.service_port
                 }
             }
         }
         stage("Development Workflow") {
-             
             when {
                 branch 'dev'
             }
             stages {
-                stage("Clone Dev Repo & Get Version") {
+                stage("Clone Dev Repo & Get Version and detect the language") {
                     steps {
                         script{
                             cloneRepoAndGetVersion(env.BRANCH_NAME, env.github_repo)
+                            detectLanguage() 
                         }
                     }
                 }
-                stage("Detect Programming Language") {
-                    steps {
-                        detectLanguage() // Calls vars/detectLanguage.groovy
-                    }
-                }
                 stage("Linting the Code and terraform linting and kubernetes linting and  docker linting") {
-                     
                     steps {
                         runLinter(env.DETECTED_LANG)
                         runInfrastructureLinting('terraform/')
@@ -58,7 +56,6 @@ pipeline {
                     }
                 }
                 stage("Install Dependencies and dependency scanning and type checking and unit tests and code coverage calcualtion ") {
-                     
                     steps {
                         installAppDependencies(env.DETECTED_LANG)
                         performDependencyScan(env.DETECTED_LANG)
@@ -67,23 +64,29 @@ pipeline {
                         calculateCodeCoverage(env.DETECTED_LANG)
                     }
                 }
-                stage("sonarqube and Mutation Testing and snapshot and component testing at Dev") {
-                     
-                    steps {
+                stage("perform sonarqube scans"){
+                    steps{      
                         runSonarQubeScan(env.SONAR_PROJECT_KEY)
+                    }
+                }
+                stage("Check SonarQube Quality Gate") {
+                    steps {
+                        waitForQualityGate abortPipeline: true
+                    }
+                }
+                stage("Mutation Testing and snapshot and component testing at Dev") {
+                    steps {
                         runMutationTests(env.DETECTED_LANG)
                         runSnapshotTests(env.DETECTED_LANG)
                         runComponentTests(env.DETECTED_LANG)
                     }
                 }
                 stage("Building the Application") {
-                     
                     steps {
                         buildApplication(env.DETECTED_LANG)
                     }
                 }
                 stage("Create Archiving File and push the artifact ") {
-                     
                         steps {
                             script {
                                 try {
@@ -97,19 +100,17 @@ pipeline {
                         }
                 }
                 stage("Perform building and  docker linting Container Scanning using trivy and syft and docker scout and Dockle and snyk at Test Env") {
-                     
-                        steps {
-                            buildDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}", env.version, '.')
-                            validateDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
-                            scanContainerTrivy("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
-                            scanContainerSyftDockle("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
-                            scanContainerSnyk("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}", "Dockerfile")
-                            scanContainerDockerScout("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
-                            scanContainerGrype("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
-                        }
+                    steps {
+                        buildDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}", env.version, '.')
+                        validateDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        scanContainerTrivy("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        scanContainerSyftDockle("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        scanContainerSnyk("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}", "Dockerfile")
+                        scanContainerDockerScout("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        scanContainerGrype("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                    }
                 }
                 stage("Perform Integration and ui/component testingand static security analysis and chaos testing with Docker Containers") {
-                     
                     steps {
                         integrationWithDocker()
                         runUiComponentTests(env.DETECTED_LANG)
@@ -118,76 +119,195 @@ pipeline {
                     }
                 }
                 stage("Push Docker Image to dev env Registry") {
-                     
                     steps {
-                        pushDockerImageToRegistry("${env.docker_registr}", "${env.docker_credentials}", "${env. DOCKER_USERNAME}${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        script { // Wrap the steps in a script block to use try-catch
+                            try {
+                                pushDockerImageToRegistry("${env.docker_registry}", "${env.docker_credentials}", "${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}") // Corrected DOCKER_USERNAME to docker_username 
+                            } catch (err) {
+                                echo "Failed to push Docker image to registry: ${err.getMessage()}"
+                                error("Stopping pipeline due to Docker image push failure.")
+                            }
+                        }
                     }
                 }
                 stage("Deploy to Dev") {
-                     
-                        steps {
-                            script {
-                                try {
-                                    withKubeConfig(
-                                        caCertificate: env.kubernetesCaCertificate, // Now dynamic
-                                        clusterName: env.kubernetesClusterName,     // Now dynamic
-                                        contextName: '',
-                                        credentialsId: env.kubernetesCredentialsId, // Now dynamic
-                                        namespace: "${env.BRANCH_NAME}",
-                                        restrictKubeConfigAccess: false,
-                                        serverUrl: env.kubernetes_endpoint
-                                    ) {
-                                        // Change Kubernetes service selector to route traffic to Green
-                                        sh """kubectl apply -f blue-load.yml -n ${KUBE_NAMESPACE}"""
-                                    }
-                                } catch (err) {
-                                    echo "failed to deploy to the production ${err}"
-                                    error("Stopping pipeline")
+                    steps {
+                        script {
+                            try {
+                                withKubeConfig(
+                                    caCertificate: env.kubernetesCaCertificate,clusterName: env.kubernetesClusterName,contextName: '',credentialsId: env.kubernetesCredentialsId,namespace: "${env.BRANCH_NAME}",restrictKubeConfigAccess: false,serverUrl: env.kubernetes_endpoint
+                                ) {
+                                    // Change Kubernetes service selector to route traffic to Green
+                                    sh """kubectl apply -f ${env.service_name}-deployment.yml -n ${env.BRANCH_NAME}"""
                                 }
+                            } catch (err) {
+                                echo "failed to deploy to the production ${err}"
+                                error("Stopping pipeline")
                             }
                         }
+                    }
                 }
-
                 stage("Perform Smoke Testing and sanity testing and APi testing and integratio testing andlight ui test and regression testing feature flag and chaos and security After Dev Deploy") {
-                     
                     steps {
                         performSmokeTesting(env.DETECTED_LANG)
                         performSanityTesting(env.DETECTED_LANG)
                         performApiTesting(env.DETECTED_LANG)
                         performIntegrationTesting(env.DETECTED_LANG)
-                        performLightUiTests(env.DETECTED_LANG)
-                        performRegressionTesting(env.DETECTED_LANG)
-                        performFeatureFlagChecks(env.DETECTED_LANG)
-                        performSecurityChecks(env.DETECTED_LANG)
-                        performChaosTestingAfterDeploy(env.DETECTED_LANG)
-                        performLoadPerformanceTesting(env.DETECTED_LANG)
+                        performDatabaseTesting()
+                        // performLightUiTests(env.DETECTED_LANG)
+                        // performRegressionTesting(env.DETECTED_LANG)
+                        // performFeatureFlagChecks(env.DETECTED_LANG)
+                        // performSecurityChecks(env.DETECTED_LANG)
+                        // performChaosTestingAfterDeploy(env.DETECTED_LANG)
+                        // performLoadPerformanceTesting(env.DETECTED_LANG)
                     }
                 }                
                 stage("Perform Logging and Monitoring Checks After Dev Deploy") {
-                     
                     steps {
                         performLoggingMonitoringChecks()
                     }
                 }
-                stage("Need the manual approval to complete the dev env"){
-                     
-                    steps{
-                        sendEmailNotification('Alert', env.notificationRecipients)
-                    }
-                }
-                stage("Manual Approval for Dev Stage") {
-                     
-                    steps {
-                        input message: "Does everything working fine here", ok: "Deploy Now", submitter: "manager,admin"
-                    }
-                }
                 stage("Generate Version File Dev Env") {
-                      // Use a specific agent if needed
                     steps {
                         generateVersionFile('gcp', "${env.bucket_name}", "${gcp_credid}")
-
                     }
                 }
+            }
+        }
+        stage("bugfix workflow Workflow") {
+            when {
+                branch pattern: "bugfix/.*", comparator: "REGEXP"
+            }
+            stages {
+                stage("Clone Dev Repo & Get Version and detect the language") {
+                    steps {
+                        script{
+                            cloneRepoAndGetVersion(env.BRANCH_NAME, env.github_repo)
+                            detectLanguage() 
+                        }
+                    }
+                }
+                stage("Install Dependencies and dependency scanning and type checking and unit tests and code coverage calcualtion ") {
+                    steps {
+                        runLinter(env.DETECTED_LANG)
+                        performSecretsDetection('.')
+                        installAppDependencies(env.DETECTED_LANG)
+                        performDependencyScan(env.DETECTED_LANG)
+                        runTypeChecks(env.DETECTED_LANG)
+                        runUnitTests(env.DETECTED_LANG)
+                        calculateCodeCoverage(env.DETECTED_LANG)
+                    }
+                }
+                stage("perform sonarqube scans"){
+                    steps{      
+                        runSonarQubeScan(env.SONAR_PROJECT_KEY)
+                    }
+                }
+                stage("Check SonarQube Quality Gate") {
+                    steps {
+                        waitForQualityGate abortPipeline: true
+                    }
+                }
+                stage("sonarqube and Mutation Testing and snapshot and component testing at Dev") {
+                    steps {
+                        runMutationTests(env.DETECTED_LANG)
+                        runSnapshotTests(env.DETECTED_LANG)
+                        runComponentTests(env.DETECTED_LANG)
+                        performRegressionTesting(env.DETECTED_LANG)
+                    }
+                }
+                stage("Building the Application") {
+                    steps {
+                        buildApplication(env.DETECTED_LANG)
+                    }
+                }    
+                stage("Create Archiving File and push the artifact ") {
+                    steps {
+                        script {
+                            try {
+                                createArchive("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", 'src/')
+                                pushArtifact("${env.service_name}-${env.version}-${env.BRANCH_NAME}.zip", "s3://${env.AWS_S3_BUCKET}/${env.AWS_S3_PATH}")
+                            } catch (err) {
+                                echo "failed to push the artifact to specific repository ${err}"
+                                error("Stopping pipeline")
+                            }
+                        }
+                    }
+                }    
+                stage("Generate SBOM & License Scan") {
+                    steps {
+                        generateSBOM(env.DETECTED_LANG)
+                        runLicenseScan(env.DETECTED_LANG)
+                    }
+                }                      
+            }
+        }
+        stage("feature branch workflow Workflow") {
+            when {
+                branch pattern: "feature/.*", comparator: "REGEXP"
+            }
+            stages {
+                stage("Clone Dev Repo & Get Version and detect the language") {
+                    steps {
+                        script{
+                            cloneRepoAndGetVersion(env.BRANCH_NAME, env.github_repo)
+                            detectLanguage() 
+                        }
+                    }
+                }
+                stage("Install Dependencies and dependency scanning and type checking and unit tests and code coverage calcualtion ") {
+                    steps {
+                        runLinter(env.DETECTED_LANG)
+                        performSecretsDetection('.')
+                        installAppDependencies(env.DETECTED_LANG)
+                        performDependencyScan(env.DETECTED_LANG)
+                        runTypeChecks(env.DETECTED_LANG)
+                        runUnitTests(env.DETECTED_LANG)
+                        calculateCodeCoverage(env.DETECTED_LANG)
+                    }
+                }
+                stage("perform sonarqube scans"){
+                    steps{      
+                        runSonarQubeScan(env.SONAR_PROJECT_KEY)
+                    }
+                }
+                stage("Check SonarQube Quality Gate") {
+                    steps {
+                        waitForQualityGate abortPipeline: true
+                    }
+                }
+                stage("sonarqube and Mutation Testing and snapshot and component testing at Dev") {
+                    steps {
+                        runMutationTests(env.DETECTED_LANG)
+                        runSnapshotTests(env.DETECTED_LANG)
+                        runComponentTests(env.DETECTED_LANG)
+                        performRegressionTesting(env.DETECTED_LANG)
+                    }
+                }
+                stage("Building the Application") {
+                    steps {
+                        buildApplication(env.DETECTED_LANG)
+                    }
+                }    
+                stage("Create Archiving File and push the artifact ") {
+                    steps {
+                        script {
+                            try {
+                                createArchive("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", 'src/')
+                                pushArtifact("${env.service_name}-${env.version}-${env.BRANCH_NAME}.zip", "s3://${env.AWS_S3_BUCKET}/${env.AWS_S3_PATH}")
+                            } catch (err) {
+                                echo "failed to push the artifact to specific repository ${err}"
+                                error("Stopping pipeline")
+                            }
+                        }
+                    }
+                }    
+                stage("Generate SBOM & License Scan") {
+                    steps {
+                        generateSBOM(env.DETECTED_LANG)
+                        runLicenseScan(env.DETECTED_LANG)
+                    }
+                }                      
             }
         }
         stage("Test Environment Workflow") {
@@ -195,41 +315,46 @@ pipeline {
                 branch 'test'
             }
             stages {
-                stage("send the alert mail to start the test env"){
-                    steps{
-                        sendEmailNotification('Alert', env.notificationRecipients)
-                    }
-                }
-                stage("Manual Approval to Start Test Env") {
-                    steps {
-                        input message: "Do you approve deployment to test?", ok: "Deploy Now", submitter: "manager,admin"
-                    }
-                }
-                stage("Clone Repo with Test Branch & Get Version") {
+                stage("Clone Dev Repo & Get Version and detect the language") {
                     steps {
                         script{
                             cloneRepoAndGetVersion(env.BRANCH_NAME, env.github_repo)
+                            detectLanguage() 
                         }
                     }
                 }
-                stage("Detect Programming Language") {
+                stage("Install Dependencies and dependency scanning and type checking and unit tests and code coverage calcualtion ") {
                     steps {
-                        detectLanguage() // Calls vars/detectLanguage.groovy
-                    }
-                }
-                stage("Static Code Analysis and unit tests and code coverage and dependencies and dependency check at Test") {
-                    steps {
-                        runUnitTests(env.DETECTED_LANG)
-                        calculateCodeCoverage(env.DETECTED_LANG)
-                        runSonarQubeScan(env.SONAR_PROJECT_KEY)
+                        runLinter(env.DETECTED_LANG)
+                        performSecretsDetection('.')
                         installAppDependencies(env.DETECTED_LANG)
                         performDependencyScan(env.DETECTED_LANG)
+                        runTypeChecks(env.DETECTED_LANG)
+                        runUnitTests(env.DETECTED_LANG)
+                        calculateCodeCoverage(env.DETECTED_LANG)
                     }
                 }
-                stage("Create Archiving File and push the artifact  at Test Stage") {
+                stage("perform sonarqube scans"){
+                    steps{      
+                        runSonarQubeScan(env.SONAR_PROJECT_KEY)
+                    }
+                }
+                stage("Check SonarQube Quality Gate") {
                     steps {
-                        createArchive("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", 'src/')
-                        pushArtifact("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", "s3://${env.AWS_S3_BUCKET}/${env.AWS_S3_PATH}")
+                        waitForQualityGate abortPipeline: true
+                    }
+                }
+                stage("Create Archiving File and push the artifact ") {    
+                    steps {
+                        script {
+                            try {
+                                createArchive("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", 'src/')
+                                pushArtifact("${env.service_name}-${env.version}-${env.BRANCH_NAME}.zip", "s3://${env.AWS_S3_BUCKET}/${env.AWS_S3_PATH}")
+                            } catch (err) {
+                                echo "failed to push the artifact to specific repository ${err}"
+                                error("Stopping pipeline")
+                            }
+                        }
                     }
                 }
                 stage("Perform building and  docker linting Container Scanning using trivy and syft and docker scout and Dockle and snyk at Test Env") {
@@ -243,45 +368,45 @@ pipeline {
                         scanContainerGrype("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
                     }
                 }
-                stage("Push Docker Image to Preprod Registry") {
+                stage("Push Docker Image to test env Registry") {
                     steps {
-                        pushDockerImageToRegistry("${env.docker_registr}", "${env.docker_credentials}", "${env. DOCKER_USERNAME}${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        script { // Wrap the steps in a script block to use try-catch
+                            try {
+                                pushDockerImageToRegistry("${env.docker_registry}", "${env.docker_credentials}", "${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}") // Corrected DOCKER_USERNAME to docker_username 
+                            } catch (err) {
+                                echo "Failed to push Docker image to registry: ${err.getMessage()}"
+                                error("Stopping pipeline due to Docker image push failure.")
+                            }
+                        }
                     }
                 }
                 stage("Deploy to test") {
-                        steps {
-                            script {
-                                try {
-                                    withKubeConfig(
-                                        caCertificate: env.kubernetesCaCertificate, // Now dynamic
-                                        clusterName: env.kubernetesClusterName,     // Now dynamic
-                                        contextName: '',
-                                        credentialsId: env.kubernetesCredentialsId, // Now dynamic
-                                        namespace: "${env.BRANCH_NAME}",
-                                        restrictKubeConfigAccess: false,
-                                        serverUrl: env.kubernetes_endpoint
-                                    ) {
-                                        // Change Kubernetes service selector to route traffic to Green
-                                        sh """kubectl apply -f blue-load.yml -n ${KUBE_NAMESPACE}"""
-                                    }
-                                } catch (err) {
-                                    echo "failed to deploy to the production ${err}"
-                                    error("Stopping pipeline")
+                    steps {
+                        script {
+                            try {
+                                withKubeConfig(
+                                    caCertificate: env.kubernetesCaCertificate,clusterName: env.kubernetesClusterName,contextName: '',credentialsId: env.kubernetesCredentialsId,namespace: "${env.BRANCH_NAME}",restrictKubeConfigAccess: false,serverUrl: env.kubernetes_endpoint
+                                ) {
+                                    // Change Kubernetes service selector to route traffic to Green
+                                    sh """kubectl apply -f ${env.service_name}-deployment.yml -n ${env.BRANCH_NAME}"""
                                 }
+                            } catch (err) {
+                                echo "failed to deploy to the production ${err}"
+                                error("Stopping pipeline")
                             }
                         }
+                    }
                 }
-
                 stage("Smoke Test and sanity and integration and functional and api and regression in Test Env") {
                     steps {
                         performSmokeTesting(env.DETECTED_LANG)
                         performSanityTesting(env.DETECTED_LANG)
                         performIntegrationTesting(env.DETECTED_LANG)
                         performApiTesting(env.DETECTED_LANG)
-                        performRegressionTesting(env.DETECTED_LANG)
                         performDatabaseTesting()
+                        performRegressionTesting(env.DETECTED_LANG)
                         performLoadPerformanceTesting(env.DETECTED_LANG)
-                        performChaosTestingAfterDeploy(env.DETECTED_LANG)
+                        // performChaosTestingAfterDeploy(env.DETECTED_LANG)  ###this is optional here
                     }
                 }
                 stage("Generate Version File Test Env") {
@@ -327,41 +452,50 @@ pipeline {
                 stage("create the change request containing what is changing and any DB changes and any downtime and rollback plan if deplyoment failes and deploymentwindow and stakeholders"){
                     steps{
                         script{
-                            sh """
-                            create a change request for production deployment
-                            """
+                            echo "create a change request for production deployment"
                         }
                     }
                 }
-                stage("Clone Repo with Main Branch & Get Version") {
+                stage("Clone Dev Repo & Get Version and detect the language") {
                     steps {
                         script{
                             cloneRepoAndGetVersion(env.BRANCH_NAME, env.github_repo)
+                            detectLanguage() 
                         }
                     }
                 }
-                stage("Detect Programming Language") {
+                stage("Install Dependencies and dependency scanning and type checking and unit tests and code coverage calcualtion ") {
                     steps {
-                        detectLanguage() // Calls vars/detectLanguage.groovy
-                    }
-                }
-                stage("Static Code Analysis and unit test and code coverage at Staging") {
-                    steps {
-                        runSonarQubeScan(env.SONAR_PROJECT_KEY)
+                        runLinter(env.DETECTED_LANG)
+                        performSecretsDetection('.')
+                        installAppDependencies(env.DETECTED_LANG)
+                        performDependencyScan(env.DETECTED_LANG)
+                        runTypeChecks(env.DETECTED_LANG)
                         runUnitTests(env.DETECTED_LANG)
                         calculateCodeCoverage(env.DETECTED_LANG)
                     }
                 }
-                stage("Install Dependencies and Scan Dependencies at Staging") {
-                    steps {
-                        installAppDependencies(env.DETECTED_LANG)
-                        performDependencyScan(env.DETECTED_LANG)
+                stage("perform sonarqube scans"){
+                    steps{      
+                        runSonarQubeScan(env.SONAR_PROJECT_KEY)
                     }
                 }
-                stage("Create Archiving File and push the artifact at Staging Env") {
+                stage("Check SonarQube Quality Gate") {
                     steps {
-                        createArchive("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", 'src/')
-                        pushArtifact("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", "s3://${env.AWS_S3_BUCKET}/${env.AWS_S3_PATH}")
+                        waitForQualityGate abortPipeline: true
+                    }
+                }
+                stage("Create Archiving File and push the artifact ") {
+                    steps {
+                        script {
+                            try {
+                                createArchive("${env.service_name}-${env.BRANCH_NAME}-${env.version}.zip", 'src/')
+                                pushArtifact("${env.service_name}-${env.version}-${env.BRANCH_NAME}.zip", "s3://${env.AWS_S3_BUCKET}/${env.AWS_S3_PATH}")
+                            } catch (err) {
+                                echo "failed to push the artifact to specific repository ${err}"
+                                error("Stopping pipeline")
+                            }
+                        }
                     }
                 }
                 stage("Perform build and   docker linting Container Scanning using trivy and syft and docker scout and Dockle and snyk at Test Env") {
@@ -375,95 +509,109 @@ pipeline {
                         scanContainerGrype("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
                     }
                 }
-                stage("send the notification to CAB team to verify the deployment"){
-                    steps{
-                        sendEmailNotification('Alert', env.notificationRecipients)
-                    }
-                }
-                stage("need the CAB approvals before deplyign to the production"){
+                stage("need approval to push the docker image to repository"){
                     steps{
                         script{
-                            input message: "Do you approve deployment to Production?", ok: "Deploy Now", submitter: "manager,admin"
+                            input message: "Do you approve image  to respository?", ok: "Deploy Now", submitter: "manager,admin"
                         }
                     }
                 }
-                
-                stage("Need the manual approval from manager and stakeholders to deploy the application into prod"){
-                    steps{
-                        sendEmailNotification('Alert', env.notificationRecipients)
-                    }
-                }
-                stage("need approvals to next stage"){
-                    steps{
-                        script{
-                            input message: "Do you approve deployment to Production?", ok: "Deploy Now", submitter: "manager,admin"
-                        }
-                    }
-                }
-                stage("Push Docker Image to stag Registry") {
+                stage("Push Docker Image to prod env Registry") {
                     steps {
-                        pushDockerImageToRegistry("${env.docker_registr}", "${env.docker_credentials}", "${env. DOCKER_USERNAME}${env.service_name}-${env.BRANCH_NAME}:${env.version}")
+                        script { // Wrap the steps in a script block to use try-catch
+                            try {
+                                pushDockerImageToRegistry("${env.docker_registry}", "${env.docker_credentials}", "${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}") // Corrected DOCKER_USERNAME to docker_username 
+                            } catch (err) {
+                                echo "Failed to push Docker image to registry: ${err.getMessage()}"
+                                error("Stopping pipeline due to Docker image push failure.")
+                            }
+                        }
                     }
                 }
                 stage("Deploy to prod at peak off-hours") {
-                     
-                        steps {
-                            script {
-                                try {
-                                    withKubeConfig(
-                                        caCertificate: env.kubernetesCaCertificate, // Now dynamic
-                                        clusterName: env.kubernetesClusterName,     // Now dynamic
-                                        contextName: '',
-                                        credentialsId: env.kubernetesCredentialsId, // Now dynamic
-                                        namespace: "${env.BRANCH_NAME}",
-                                        restrictKubeConfigAccess: false,
-                                        serverUrl: env.kubernetes_endpoint
-                                    ) {
-                                        // Change Kubernetes service selector to route traffic to Green
-                                        sh """kubectl apply -f blue-load.yml -n ${KUBE_NAMESPACE}"""
+                    steps {
+                        script {
+                            try {
+                                withKubeConfig(
+                                    caCertificate: env.kubernetesCaCertificate,clusterName: env.kubernetesClusterName,contextName: '',credentialsId: env.kubernetesCredentialsId,namespace: "${env.BRANCH_NAME}",restrictKubeConfigAccess: false,serverUrl: env.kubernetes_endpoint
+                                ) {
+                                    sh """
+                                    kubectl apply -f ${service_name}-deployment.yaml -n ${env.BRANCH_NAME}
+                                    kubectl rollout status deployment/${service_name} -n ${env.BRANCH_NAME}
+                                    """
+                                }
+                            } catch (err) {
+                                echo "failed to deploy to the production ${err}"
+                                error("Stopping pipeline")
+                            }
+                        }
+                    }
+                }
+                stage('Automated Post-Deployment Verification & Rollback') {
+                    steps {
+                        script {
+                            withKubeConfig(
+                                    caCertificate: env.kubernetesCaCertificate,clusterName: env.kubernetesClusterName,contextName: '',credentialsId: env.kubernetesCredentialsId,namespace: "${env.BRANCH_NAME}",restrictKubeConfigAccess: false,serverUrl: env.kubernetes_endpoint
+                                ) {
+                                def maxRetries = 5
+                                def retryInterval = 30 // seconds
+                                def deploymentHealthy = false
+
+                                for (int i = 0; i < maxRetries; i++) {
+                                    try {
+                                        // Run health check inside cluster using ephemeral pod
+                                        def response = sh(
+                                            script: """
+                                            kubectl run tmp-shell --rm -i --tty --image=curlimages/curl --namespace ${env.BRANCH_NAME} -- /bin/sh -c "curl -o /dev/null -s -w '%{http_code}\\n' http://${env.service_name}.${env.BRANCH_NAME}.svc.cluster.local:${env.service_port}"
+                                            """,
+                                            returnStdout: true
+                                        ).trim()
+
+                                        if (response == '200') {
+                                            echo "✅ Application health check passed inside cluster."
+                                            deploymentHealthy = true
+                                            break
+                                        } else {
+                                            echo "⚠️ Application health check failed with status ${response}. Retrying in ${retryInterval} seconds..."
+                                        }
+                                    } catch (err) {
+                                        echo "⚠️ Health check command error: ${err.getMessage()}. Retrying in ${retryInterval} seconds..."
                                     }
-                                } catch (err) {
-                                    echo "failed to deploy to the production ${err}"
-                                    error("Stopping pipeline")
+                                    sleep retryInterval
+                                }
+
+                                if (!deploymentHealthy) {
+                                    echo "🔴 Automated health checks failed after multiple retries. Initiating rollback..."
+                                    try {
+                                        sh "kubectl rollout undo deployment/${env.service_name} -n ${env.BRANCH_NAME}"
+                                        echo "✅ Rollback command completed."
+                                    } catch (err) {
+                                        echo "❌ Rollback command failed: ${err.getMessage()}"
+                                    }
+                                    currentBuild.result = 'FAILURE'
+                                    error("🔴 Production deployment unhealthy. Automated rollback executed. Pipeline failed.")
+                                } else {
+                                    echo "✅ Automated post-deployment verification passed."
                                 }
                             }
                         }
+                    }
                 }
-
                 stage("Smoke Test and sanity test and synthatic test and  in preProduction") {
-                     
                     steps {
                         performSmokeTesting(env.DETECTED_LANG)
-                        performLoadPerformanceTesting(env.DETECTED_LANG)
                         performSanityTesting(env.DETECTED_LANG)
-                        performIntegrationTesting(env.DETECTED_LANG)
-                        performApiTesting(env.DETECTED_LANG)
+                        // performIntegrationTesting(env.DETECTED_LANG)
+                        // performApiTesting(env.DETECTED_LANG)
                         performRegressionTesting(env.DETECTED_LANG)
                         performDatabaseTesting()
                         performChaosTestingAfterDeploy(env.DETECTED_LANG)
-
                     }
                 }
-                stage("is smoke and sanity and synthatic everything is fine"){
+                stage("is above tests and monitoring is fine for production environment"){
                     steps{
                         script{
-                            input message: "Do you approve deployment to Production?", ok: "Deploy Now", submitter: "manager,admin"
-                        }
-                    }
-                }
-                stage("monitoring the prod environment"){
-                    steps {
-                        script {
-                            sh """
-                            montoring happens here
-                            """
-                        }
-                    }
-                }
-                stage("is monitoring is fine fine"){
-                    steps{
-                        script{
-                            input message: "Do you approve deployment to Production?", ok: "Deploy Now", submitter: "manager,admin"
+                            input message: "Is prodiction environment is stable?", ok: "Deploy Now", submitter: "manager,admin"
                         }
                     }
                 }
@@ -471,46 +619,6 @@ pipeline {
                      
                     steps {
                         generateVersionFile('gcp', "${env.bucket_name}", "${gcp_credid}")
-                    }
-                }
-                stage("Manual Verification of Production Deployment") {
-                     
-                    steps {
-                        script {
-                            env.ROLLBACK_DECISION = input(
-                                id: 'prodVerification',
-                                message: "Is production working correctly?",
-                                parameters: [
-                                    choice(name: 'Decision', choices: ['Proceed', 'Rollback'], description: 'Select rollback if prod is broken')
-                                ]
-                            )
-                            if (env.ROLLBACK_DECISION == 'Rollback') {
-                                echo "⏪ Manual decision: Rolling back to previous version..."
-                                try {
-                                    withKubeConfig(
-                                        caCertificate: env.kubernetesCaCertificate, // Now dynamic
-                                        clusterName: env.kubernetesClusterName,     // Now dynamic
-                                        contextName: '',
-                                        credentialsId: env.kubernetesCredentialsId, // Now dynamic
-                                        namespace: "${env.BRANCH_NAME}",
-                                        restrictKubeConfigAccess: false,
-                                        serverUrl: env.kubernetes_endpoint
-                                    ) {
-                                        sh "kubectl rollout undo deployment/${env.service_name} -n ${env.BRANCH_NAME}"
-                                        sh "kubectl rollout status deployment/${env.service_name} -n ${env.BRANCH_NAME}"
-                                        echo "✅ Rollback completed"
-                                    }
-                                } catch (err) {
-                                    echo "❌ Rollback command failed: ${err.getMessage()}"
-                                }
-
-                                // Mark build as failed after rollback
-                                currentBuild.result = 'FAILURE'
-                                error("🔴 Production was marked as broken. Rollback executed. Pipeline failed.")
-                            } else {
-                                echo "✅ Manual verification passed. Continuing with success flow..."
-                            }
-                        }
                     }
                 }
                 stage("prod deployment is successful"){

@@ -1,5 +1,5 @@
 # Use official Python image (more compatible than Alpine)
-FROM python:3.14-rc-alpine3.20
+FROM python:3.11-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \

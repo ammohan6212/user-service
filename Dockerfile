@@ -1,6 +1,5 @@
 # Use official Python image (more compatible than Alpine)
-FROM python:3.14-rc-alpine
-
+FROM python:3.13-rc-slim-bookworm
 
 # Install system dependencies
 RUN apk update && apk add --no-cache \

@@ -5,7 +5,7 @@ passlib[bcrypt]
 pydantic
 python-dotenv
 sqlalchemy
-psycopg2-binary==2.9.9
+psycopg2
 httpx
 redis
 sendgrid

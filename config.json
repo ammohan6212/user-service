@@ -1,6 +1,6 @@
 {
-    "github_repo": "https://github.com/ammohan6212/front-service.git",
-    "serviceName": "front",
+    "github_repo": "https://github.com/ammohan6212/user-service.git",
+    "serviceName": "user",
     "notificationRecipients": "mohan14242@gmail.com",
     "docker_username": "mohan14242ai",
     "docker_cred_username":"docker-username",

@@ -2,13 +2,13 @@
 FROM python:3.14.0b3-slim-bookworm
 
 # Install system dependencies
-RUN apk update && apk add --no-cache \
-    build-base \
-    postgresql-dev \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
     libffi-dev \
     gcc \
-    cargo
-
+    cargo \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app

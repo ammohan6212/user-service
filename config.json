@@ -1,16 +1,19 @@
 {
-    "github_repo": "https://github.com/ammohan6212/user-service.git",
-    "serviceName": "user-service",
+    "github_repo": "https://github.com/ammohan6212/front-service.git",
+    "serviceName": "front",
     "notificationRecipients": "mohan14242@gmail.com",
-    "docker_username": "dockeruser123",
-    "docker_credentials": "docker-credentials-id",
-    "docker_registry": "docker.io/ammohan6212",
+    "docker_username": "mohan14242ai",
+    "docker_cred_username":"docker-username",
+    "docker_cred_password":"docker-password",
+    "docker_credentials": "docker-id",
     "kubernetes_endpoint": "https://34.121.208.218",
-    "bucket_name": "example-artifact-bucket",
-    "bucket_path": "artifacts/builds/example-service",
+    "bucket_name": "micro-service",
     "kubernetesClusterName": "example-cluster",
     "kubernetesCredentialsId": "k8s-credentials-id",
     "kubernetesCaCertificate": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t...==",
     "gcp_credid": "gcp-credentials-id",
-    "aws_credid": "aws-credentials-id"
+    "aws_credid": "aws-credentials-id",
+    "service_port":"8080",
+    "image_registry":"https://index.docker.io/v1/"
 }
+

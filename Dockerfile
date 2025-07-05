@@ -1,5 +1,5 @@
 # Use official Python image (more compatible than Alpine)
-FROM python:3.14.0b3-slim-bookworm
+FROM python:3.14-rc-bookworm
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \

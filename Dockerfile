@@ -1,5 +1,5 @@
 # Use official Python image (more compatible than Alpine)
-FROM python:3.13-rc-alpine3.20
+FROM python:3.13-rc-alpine3.21
 
 # Install system dependencies
 RUN apk update && apk add --no-cache \

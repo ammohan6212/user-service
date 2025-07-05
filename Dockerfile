@@ -2,12 +2,13 @@
 FROM python:3.14-rc-alpine3.20
 
 # Install system dependencies
-RUN apk update && apk add --no-cache \
-    build-base \
-    libpq \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
     libffi-dev \
     gcc \
-    cargo
+    cargo \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app

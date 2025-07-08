@@ -3,7 +3,7 @@
     "serviceName": "user",
     "notificationRecipients": "mohan14242@gmail.com",
     "docker_username": "mohan14242",
-    "docker_cred_username":"another-username",
+    "docker_cred_username":"user2",
     "docker_cred_password":"docker-password",
     "docker_credentials": "docker-id",
     "kubernetes_endpoint": "https://mohan-cluster2-dns-em2649zu.hcp.canadacentral.azmk8s.io",

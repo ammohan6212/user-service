@@ -24,11 +24,12 @@ pipeline {
                         env.kubernetesCaCertificate=projectConfig.kubernetesCaCertificate
                         env.gcp_credid=projectConfig.gcp_credid
                         env.aws_credid=projectConfig.aws_credid
-                        env.service_port=projectConfig.service_port
                         env.project_name=projectConfig.project_name
                         env.image_registry=projectConfig.image_registry
                         env.docker_cred_username=projectConfig.docker_cred_username
                         env.docker_cred_password=projectConfig.docker_cred_password
+                        servicesToCheck = projectConfig.services
+
                 }
             }
         }
@@ -46,27 +47,31 @@ pipeline {
                         }
                     }
                 }
-                // stage("Linting the Code and terraform linting and kubernetes linting and  docker linting") {
-                //     steps {
-                //         runLinter(env.DETECTED_LANG)
-                //         runInfrastructureLinting('terraform/')
-                //         runKubernetesLinting('kubernetes/') 
-                //         validateDockerImage('Dockerfile')
-                //     }
-                // }
+                stage("Linting (App Code, Terraform, Kubernetes, Docker)") {
+                    steps {
+                        runLinter(env.DETECTED_LANG)
+                        // runInfrastructureLinting('terraform/')
+                        // runKubernetesLinting('kubernetes/') 
+                        // validateDockerImage('Dockerfile')
+                    }
+                }
                 // stage("Secrets Detection") {
-                     
                 //     steps {
                 //         performSecretsDetection('.') // Scan the entire workspace
                 //     }
                 // }
+                stage("Building the Application") {
+                    steps {
+                        buildApplication(env.DETECTED_LANG)
+                    }
+                }
                 stage("Install Dependencies and dependency scanning and type checking and unit tests and code coverage calcualtion ") {
                     steps {
                         installAppDependencies(env.DETECTED_LANG)
-                        // performDependencyScan(env.DETECTED_LANG)
-                        // runTypeChecks(env.DETECTED_LANG)
-                        // runUnitTests(env.DETECTED_LANG)
-                        // calculateCodeCoverage(env.DETECTED_LANG)
+                        performDependencyScan(env.DETECTED_LANG)
+                        runTypeChecks(env.DETECTED_LANG)
+                        runUnitTests(env.DETECTED_LANG)
+                        calculateCodeCoverage(env.DETECTED_LANG)
                     }
                 }
                 // stage("perform sonarqube scans"){
@@ -80,16 +85,11 @@ pipeline {
                 //         waitForQualityGate abortPipeline: true
                 //     }
                 // }
-                // stage("Mutation Testing and snapshot and component testing at Dev") {
-                //     steps {
-                //         runMutationTests(env.DETECTED_LANG)
-                //         runSnapshotTests(env.DETECTED_LANG)
-                //         runComponentTests(env.DETECTED_LANG)
-                //     }
-                // }
-                stage("Building the Application") {
+                stage("Mutation Testing and snapshot and component testing at Dev") {
                     steps {
-                        buildApplication(env.DETECTED_LANG)
+                        runMutationTests(env.DETECTED_LANG)
+                        runSnapshotTests(env.DETECTED_LANG)
+                        runComponentTests(env.DETECTED_LANG)
                     }
                 }
                 stage("Create Archiving File and push the artifact ") {
@@ -136,36 +136,68 @@ pipeline {
                         }
                     }
                 }
-                // stage("Deploy to Dev") {
-                //     steps {
-                //         script {
-                //             try {
-                //                 withKubeConfig(
-                //                     caCertificate: env.kubernetesCaCertificate,clusterName: env.kubernetesClusterName,contextName: '',credentialsId: env.kubernetesCredentialsId,namespace: "${env.BRANCH_NAME}",restrictKubeConfigAccess: false,serverUrl: env.kubernetes_endpoint
-                //                 ) {
-                //                     // Change Kubernetes service selector to route traffic to Green
-                //                     sh """kubectl apply -f ${env.service_name}-deployment.yml -n ${env.BRANCH_NAME}"""
-                //                 }
-                //             } catch (err) {
-                //                 echo "failed to deploy to the production ${err}"
-                //                 error("Stopping pipeline")
-                //             }
-                //         }
-                //     }
-                // }
+                stage("Deploy to Dev") {
+                    steps {
+                        script {
+                            try {
+                                withKubeConfig(
+                                    credentialsId: env.kubernetesCredentialsId,
+                                    serverUrl: env.kubernetes_endpoint,
+                                    namespace: "${env.BRANCH_NAME}",
+                                    contextName: '',
+                                    restrictKubeConfigAccess: false
+                                ) {
+                                    dir("kubernetes") {  // 👈 Change this to your folder name
+                                        sh """ 
+                                        helm upgrade --install ${env.service_name} . \
+                                            -f values-${env.BRANCH_NAME}.yaml \
+                                            --set ${env.service_name}.image=${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version} \
+                                            --namespace ${env.BRANCH_NAME} 
+                                        """
+                                    }
+                                }
+                            } catch (err) {
+                                echo "Failed to deploy to the dev environment: ${err}"
+                                error("Stopping pipeline")
+                            }
+                        }
+                    }
+                }
+                stage("checking the services that are running or not") {
+                    steps {
+                        script {
+                            try {
+                                withKubeConfig(
+                                    credentialsId: env.kubernetesCredentialsId,
+                                    serverUrl: env.kubernetes_endpoint,
+                                    namespace: "${env.BRANCH_NAME}",
+                                    contextName: '',
+                                    restrictKubeConfigAccess: false
+                                ) {
+                                    dir("kubernetes") {  // 👈 Change this to your folder name
+                                        checkk8services(servicesToCheck, "${env.BRANCH_NAME}")
+                                    }
+                                }
+                            } catch (err) {
+                                echo "services are not running : ${err}"
+                                error("Stopping pipeline")
+                            }
+                        }
+                    }
+                }
                 stage("Perform Smoke Testing and sanity testing and APi testing and integratio testing andlight ui test and regression testing feature flag and chaos and security After Dev Deploy") {
                     steps {
                         performSmokeTesting(env.DETECTED_LANG)
                         performSanityTesting(env.DETECTED_LANG)
                         performApiTesting(env.DETECTED_LANG)
                         performIntegrationTesting(env.DETECTED_LANG)
-                        performDatabaseTesting()
-                        // performLightUiTests(env.DETECTED_LANG)
-                        // performRegressionTesting(env.DETECTED_LANG)
-                        // performFeatureFlagChecks(env.DETECTED_LANG)
-                        // performSecurityChecks(env.DETECTED_LANG)
-                        // performChaosTestingAfterDeploy(env.DETECTED_LANG)
-                        // performLoadPerformanceTesting(env.DETECTED_LANG)
+                        performDatabaseTesting(env.DETECTED_LANG)
+                        performLightUiTests(env.DETECTED_LANG)
+                        performRegressionTesting(env.DETECTED_LANG)
+                        performFeatureFlagChecks(env.DETECTED_LANG)
+                        performSecurityChecks(env.DETECTED_LANG)
+                        performChaosTestingAfterDeploy(env.DETECTED_LANG)
+                        performLoadPerformanceTesting(env.DETECTED_LANG)
                     }
                 }                
                 stage("Perform Logging and Monitoring Checks After Dev Deploy") {
@@ -256,6 +288,11 @@ pipeline {
                         }
                     }
                 }
+                stage("Building the Application") {
+                    steps {
+                        buildApplication(env.DETECTED_LANG)
+                    }
+                }
                 stage("Install Dependencies and dependency scanning and type checking and unit tests and code coverage calcualtion ") {
                     steps {
                         runLinter(env.DETECTED_LANG)
@@ -283,11 +320,6 @@ pipeline {
                         runSnapshotTests(env.DETECTED_LANG)
                         runComponentTests(env.DETECTED_LANG)
                         performRegressionTesting(env.DETECTED_LANG)
-                    }
-                }
-                stage("Building the Application") {
-                    steps {
-                        buildApplication(env.DETECTED_LANG)
                     }
                 }    
                 stage("Create Archiving File and push the artifact ") {
@@ -319,10 +351,27 @@ pipeline {
                         }
                     }
                 }
-                stage("Install Dependencies and dependency scanning and type checking and unit tests and code coverage calcualtion ") {
+                stage("Linting (App Code, Terraform, Kubernetes, Docker)") {
                     steps {
                         runLinter(env.DETECTED_LANG)
-                        performSecretsDetection('.')
+                        // runInfrastructureLinting('terraform/')
+                        // runKubernetesLinting('kubernetes/') 
+                        // validateDockerImage('Dockerfile')
+                    }
+                }
+                // stage("Secrets Detection") {
+                     
+                //     steps {
+                //         performSecretsDetection('.') // Scan the entire workspace
+                //     }
+                // }
+                stage("Building the Application") {
+                    steps {
+                        buildApplication(env.DETECTED_LANG)
+                    }
+                }
+                stage("Install Dependencies and dependency scanning and type checking and unit tests and code coverage calcualtion ") {
+                    steps {
                         installAppDependencies(env.DETECTED_LANG)
                         performDependencyScan(env.DETECTED_LANG)
                         runTypeChecks(env.DETECTED_LANG)
@@ -331,7 +380,8 @@ pipeline {
                     }
                 }
                 // stage("perform sonarqube scans"){
-                //     steps{      
+                //     steps{     
+                //         echo "sonarqube test happens here" 
                 //         runSonarQubeScan(env.SONAR_PROJECT_KEY)
                 //     }
                 // }
@@ -340,6 +390,13 @@ pipeline {
                 //         waitForQualityGate abortPipeline: true
                 //     }
                 // }
+                stage("Mutation Testing and snapshot and component testing at Dev") {
+                    steps {
+                        runMutationTests(env.DETECTED_LANG)
+                        runSnapshotTests(env.DETECTED_LANG)
+                        runComponentTests(env.DETECTED_LANG)
+                    }
+                }
                 stage("Create Archiving File and push the artifact ") {    
                     steps {
                         script {
@@ -355,7 +412,7 @@ pipeline {
                 }
                 stage("Perform building and  docker linting Container Scanning using trivy and syft and docker scout and Dockle and snyk at Test Env") {
                     steps {
-                        buildDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}", env.VERSION_TAG, '.')
+                        buildDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}",env.version, '.')
                         validateDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
                         scanContainerTrivy("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
                         scanContainerSyftDockle("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
@@ -376,30 +433,62 @@ pipeline {
                         }
                     }
                 }
-                // stage("Deploy to test") {
-                //     steps {
-                //         script {
-                //             try {
-                //                 withKubeConfig(
-                //                     caCertificate: env.kubernetesCaCertificate,clusterName: env.kubernetesClusterName,contextName: '',credentialsId: env.kubernetesCredentialsId,namespace: "${env.BRANCH_NAME}",restrictKubeConfigAccess: false,serverUrl: env.kubernetes_endpoint
-                //                 ) {
-                //                     // Change Kubernetes service selector to route traffic to Green
-                //                     sh """kubectl apply -f ${env.service_name}-deployment.yml -n ${env.BRANCH_NAME}"""
-                //                 }
-                //             } catch (err) {
-                //                 echo "failed to deploy to the production ${err}"
-                //                 error("Stopping pipeline")
-                //             }
-                //         }
-                //     }
-                // }
+                stage("Deploy to test environment") {
+                    steps {
+                        script {
+                            try {
+                                withKubeConfig(
+                                    credentialsId: env.kubernetesCredentialsId,
+                                    serverUrl: env.kubernetes_endpoint,
+                                    namespace: "${env.BRANCH_NAME}",
+                                    contextName: '',
+                                    restrictKubeConfigAccess: false
+                                ) {
+                                    dir("kubernetes") {  // 👈 Change this to your folder name
+                                        sh """ 
+                                        helm upgrade --install ${env.service_name} . \
+                                            -f values-${env.BRANCH_NAME}.yaml \
+                                            --set ${env.service_name}.image=${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version} \
+                                            --namespace ${env.BRANCH_NAME}
+                                        """
+                                    }
+                                }
+                            } catch (err) {
+                                echo "Failed to deploy to the dev environment: ${err}"
+                                error("Stopping pipeline")
+                            }
+                        }
+                    }
+                }
+                stage("checking the services that are running or not") {
+                    steps {
+                        script {
+                            try {
+                                withKubeConfig(
+                                    credentialsId: env.kubernetesCredentialsId,
+                                    serverUrl: env.kubernetes_endpoint,
+                                    namespace: "${env.BRANCH_NAME}",
+                                    contextName: '',
+                                    restrictKubeConfigAccess: false
+                                ) {
+                                    dir("kubernetes") {  // 👈 Change this to your folder name
+                                        checkk8services(servicesToCheck, "${env.BRANCH_NAME}")
+                                    }
+                                }
+                            } catch (err) {
+                                echo "services are not running : ${err}"
+                                error("Stopping pipeline")
+                            }
+                        }
+                    }
+                }
                 stage("Smoke Test and sanity and integration and functional and api and regression in Test Env") {
                     steps {
                         performSmokeTesting(env.DETECTED_LANG)
                         performSanityTesting(env.DETECTED_LANG)
                         performIntegrationTesting(env.DETECTED_LANG)
                         performApiTesting(env.DETECTED_LANG)
-                        performDatabaseTesting()
+                        performDatabaseTesting(env.DETECTED_LANG)
                         performRegressionTesting(env.DETECTED_LANG)
                         performLoadPerformanceTesting(env.DETECTED_LANG)
                         // performChaosTestingAfterDeploy(env.DETECTED_LANG)  ###this is optional here
@@ -410,29 +499,6 @@ pipeline {
                         generateVersionFile('gcp', "${env.bucket_name}/version-files/", "${gcp_credid}")
                     }
                 }
-                stage("Need the manual approval to complete the test env"){
-                    steps{
-                        sendEmailNotification('Alert', env.notificationRecipients)
-                    }
-                }
-                stage("Approval for Test Success") {
-                    steps {
-                        script {
-                            try {
-                                input message: "Do you approve to proceed to Staging Environment?",
-                                    ok: "Approve",
-                                    submitter: "manager,admin"
-                                echo "Approval granted. Proceeding to Staging Environment."
-                                currentBuild.result = 'SUCCESS'
-                            } catch (err) {
-                                echo "Approval was not granted. Error: ${err}"
-                                currentBuild.result = 'FAILURE'
-                                error("Pipeline failed due to rejection or interruption.")
-                            }
-                        }
-                    }
-                }
-
             }
         }
         stage("deploying the application into prod"){
@@ -464,7 +530,7 @@ pipeline {
                 stage("Install Dependencies and dependency scanning and type checking and unit tests and code coverage calcualtion ") {
                     steps {
                         runLinter(env.DETECTED_LANG)
-                        performSecretsDetection('.')
+                        // performSecretsDetection('.')
                         installAppDependencies(env.DETECTED_LANG)
                         performDependencyScan(env.DETECTED_LANG)
                         runTypeChecks(env.DETECTED_LANG)
@@ -497,7 +563,7 @@ pipeline {
                 }
                 stage("Perform build and   docker linting Container Scanning using trivy and syft and docker scout and Dockle and snyk at Test Env") {
                     steps {
-                        buildDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}", env.VERSION_TAG, '.')
+                        buildDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}", env.version, '.')
                         validateDockerImage("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
                         scanContainerTrivy("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
                         scanContainerSyftDockle("${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version}")
@@ -525,83 +591,63 @@ pipeline {
                         }
                     }
                 }
-                // stage("Deploy to prod at peak off-hours") {
-                //     steps {
-                //         script {
-                //             try {
-                //                 withKubeConfig(
-                //                     caCertificate: env.kubernetesCaCertificate,clusterName: env.kubernetesClusterName,contextName: '',credentialsId: env.kubernetesCredentialsId,namespace: "${env.BRANCH_NAME}",restrictKubeConfigAccess: false,serverUrl: env.kubernetes_endpoint
-                //                 ) {
-                //                     sh """
-                //                     kubectl apply -f ${service_name}-deployment.yaml -n ${env.BRANCH_NAME}
-                //                     kubectl rollout status deployment/${service_name} -n ${env.BRANCH_NAME}
-                //                     """
-                //                 }
-                //             } catch (err) {
-                //                 echo "failed to deploy to the production ${err}"
-                //                 error("Stopping pipeline")
-                //             }
-                //         }
-                //     }
-                // }
-                // stage('Automated Post-Deployment Verification & Rollback') {
-                //     steps {
-                //         script {
-                //             withKubeConfig(
-                //                     caCertificate: env.kubernetesCaCertificate,clusterName: env.kubernetesClusterName,contextName: '',credentialsId: env.kubernetesCredentialsId,namespace: "${env.BRANCH_NAME}",restrictKubeConfigAccess: false,serverUrl: env.kubernetes_endpoint
-                //                 ) {
-                //                 def maxRetries = 5
-                //                 def retryInterval = 30 // seconds
-                //                 def deploymentHealthy = false
-
-                //                 for (int i = 0; i < maxRetries; i++) {
-                //                     try {
-                //                         // Run health check inside cluster using ephemeral pod
-                //                         def response = sh(
-                //                             script: """
-                //                             kubectl run tmp-shell --rm -i --tty --image=curlimages/curl --namespace ${env.BRANCH_NAME} -- /bin/sh -c "curl -o /dev/null -s -w '%{http_code}\\n' http://${env.service_name}.${env.BRANCH_NAME}.svc.cluster.local:${env.service_port}"
-                //                             """,
-                //                             returnStdout: true
-                //                         ).trim()
-
-                //                         if (response == '200') {
-                //                             echo "✅ Application health check passed inside cluster."
-                //                             deploymentHealthy = true
-                //                             break
-                //                         } else {
-                //                             echo "⚠️ Application health check failed with status ${response}. Retrying in ${retryInterval} seconds..."
-                //                         }
-                //                     } catch (err) {
-                //                         echo "⚠️ Health check command error: ${err.getMessage()}. Retrying in ${retryInterval} seconds..."
-                //                     }
-                //                     sleep retryInterval
-                //                 }
-
-                //                 if (!deploymentHealthy) {
-                //                     echo "🔴 Automated health checks failed after multiple retries. Initiating rollback..."
-                //                     try {
-                //                         sh "kubectl rollout undo deployment/${env.service_name} -n ${env.BRANCH_NAME}"
-                //                         echo "✅ Rollback command completed."
-                //                     } catch (err) {
-                //                         echo "❌ Rollback command failed: ${err.getMessage()}"
-                //                     }
-                //                     currentBuild.result = 'FAILURE'
-                //                     error("🔴 Production deployment unhealthy. Automated rollback executed. Pipeline failed.")
-                //                 } else {
-                //                     echo "✅ Automated post-deployment verification passed."
-                //                 }
-                //             }
-                //         }
-                //     }
-                // }
+               stage("Deploy to Dev") {
+                    steps {
+                        script {
+                            try {
+                                withKubeConfig(
+                                    credentialsId: env.kubernetesCredentialsId,
+                                    serverUrl: env.kubernetes_endpoint,
+                                    namespace: "${env.BRANCH_NAME}",
+                                    contextName: '',
+                                    restrictKubeConfigAccess: false
+                                ) {
+                                    dir("kubernetes") {  // 👈 Change this to your folder name
+                                        sh """ 
+                                        helm upgrade --install ${env.service_name} . \
+                                            -f values-${env.BRANCH_NAME}.yaml \
+                                            --set ${env.service_name}.image=${env.docker_username}/${env.service_name}-${env.BRANCH_NAME}:${env.version} \
+                                            --namespace ${env.BRANCH_NAME}
+                                        """
+                                    }
+                                }
+                            } catch (err) {
+                                echo "Failed to deploy to the dev environment: ${err}"
+                                error("Stopping pipeline")
+                            }
+                        }
+                    }
+                }
+                stage("checking the services that are running or not") {
+                    steps {
+                        script {
+                            try {
+                                withKubeConfig(
+                                    credentialsId: env.kubernetesCredentialsId,
+                                    serverUrl: env.kubernetes_endpoint,
+                                    namespace: "${env.BRANCH_NAME}",
+                                    contextName: '',
+                                    restrictKubeConfigAccess: false
+                                ) {
+                                    dir("kubernetes") {  // 👈 Change this to your folder name
+                                        checkproduction(servicesToCheck, "${env.BRANCH_NAME}","${env.notificationRecipients}")
+                                    }
+                                }
+                            } catch (err) {
+                                echo "services are not running : ${err}"
+                                error("Stopping pipeline")
+                            }
+                        }
+                    }
+                }
                 stage("Smoke Test and sanity test and synthatic test and  in preProduction") {
                     steps {
                         performSmokeTesting(env.DETECTED_LANG)
                         performSanityTesting(env.DETECTED_LANG)
-                        // performIntegrationTesting(env.DETECTED_LANG)
-                        // performApiTesting(env.DETECTED_LANG)
+                        performIntegrationTesting(env.DETECTED_LANG)
+                        performApiTesting(env.DETECTED_LANG)
                         performRegressionTesting(env.DETECTED_LANG)
-                        performDatabaseTesting()
+                        performDatabaseTesting(env.DETECTED_LANG)
                         performChaosTestingAfterDeploy(env.DETECTED_LANG)
                     }
                 }

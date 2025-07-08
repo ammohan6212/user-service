@@ -1,5 +1,5 @@
 # Use official Python image (more compatible than Alpine)
-FROM python:3.14-rc-bullseye
+FROM python:3.13.5-bookworm
 
 
 # Install system dependencies

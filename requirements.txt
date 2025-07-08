@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-PyJWT>=2.0.0
+python-jose
 passlib[bcrypt]
 pydantic
 python-dotenv

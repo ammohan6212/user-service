@@ -62,6 +62,14 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 
+@app.get("/health", summary="Health Check", tags=["Health"])
+async def health_check():
+    return JSONResponse(
+        status_code=200,
+        content={"status": "ok"}
+    )
+
+
 @app.post("/start-seller-registration")
 def start_registration(request: StartRegistrationRequest, db: Session = Depends(get_db)):
     # 1️⃣ Check if email already registered

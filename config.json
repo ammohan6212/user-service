@@ -1,6 +1,6 @@
 {
-    "github_repo": "https://github.com/ammohan6212/payment-service.git",
-    "serviceName": "payment",
+    "github_repo": "https://github.com/ammohan6212/user-service.git",
+    "serviceName": "user",
     "notificationRecipients": "mohan14242@gmail.com",
     "docker_username": "mohan14242ai",
     "docker_cred_username":"docker-username",
@@ -13,6 +13,6 @@
     "gcp_credid": "gcp-credentials-id",
     "aws_credid": "aws-credentials-id",
     "image_registry":"https://index.docker.io/v1/",
-    "services": [{"name": "payment", "port": 8081, "expectedCode": "200", "path": "/health"}]
+    "services": [{"name": "user", "port": 8081, "expectedCode": "200", "path": "/health"}]
 }
 

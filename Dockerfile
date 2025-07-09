@@ -1,14 +1,15 @@
 # Use official Python image (more compatible than Alpine)
-FROM python:3.11-slim
+FROM python:3.13.5-bookworm
+
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    libffi-dev \
-    gcc \
-    cargo \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update; \
+	apt-get install -y --no-install-recommends \
+		libbluetooth-dev \
+		tk-dev \
+		uuid-dev \
+    ;\
+    rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app

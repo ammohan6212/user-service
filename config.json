@@ -1,16 +1,18 @@
 {
     "github_repo": "https://github.com/ammohan6212/user-service.git",
-    "serviceName": "user-service",
+    "serviceName": "user",
     "notificationRecipients": "mohan14242@gmail.com",
-    "docker_username": "dockeruser123",
-    "docker_credentials": "docker-credentials-id",
-    "docker_registry": "docker.io/ammohan6212",
-    "kubernetes_endpoint": "https://34.121.208.218",
-    "bucket_name": "example-artifact-bucket",
-    "bucket_path": "artifacts/builds/example-service",
+    "docker_username": "mohan14242",
+    "docker_cred_username":"user2",
+    "docker_cred_password":"docker-password",
+    "docker_credentials": "docker-id",
+    "kubernetes_endpoint": "https://mohan-cluster2-dns-em2649zu.hcp.canadacentral.azmk8s.io",
+    "bucket_name": "micro-service",
     "kubernetesClusterName": "example-cluster",
     "kubernetesCredentialsId": "k8s-credentials-id",
-    "kubernetesCaCertificate": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t...==",
     "gcp_credid": "gcp-credentials-id",
-    "aws_credid": "aws-credentials-id"
+    "aws_credid": "aws-credentials-id",
+    "image_registry":"https://index.docker.io/v1/",
+    "services": [{"name": "user", "port": 8080, "expectedCode": "200", "path": "/health"}]
 }
+

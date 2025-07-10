@@ -6,7 +6,7 @@ from auth import create_access_token
 from pydantic import BaseModel,EmailStr
 from datetime import datetime, timedelta
 import secrets
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse,JSONResponse
 from httpx import post
 from utils import generate_otp,store_otp,send_email_otp_gmail,verify_otp
 

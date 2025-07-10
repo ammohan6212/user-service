@@ -3,16 +3,22 @@
     "serviceName": "user",
     "notificationRecipients": "mohan14242@gmail.com",
     "docker_username": "mohan14242",
-    "docker_cred_username":"user2",
-    "docker_cred_password":"docker-password",
+    "docker_cred_username": "user2",
+    "docker_cred_password": "docker-password",
     "docker_credentials": "docker-id",
-    "kubernetes_endpoint": "https://mohan-cluster2-dns-em2649zu.hcp.canadacentral.azmk8s.io",
+    "kubernetes_endpoint": "https://59424A9F2C43010FCE634E7C7F3F53E5.gr7.us-east-1.eks.amazonaws.com",
     "bucket_name": "micro-service",
     "kubernetesClusterName": "example-cluster",
     "kubernetesCredentialsId": "k8s-credentials-id",
     "gcp_credid": "gcp-credentials-id",
     "aws_credid": "aws-credentials-id",
-    "image_registry":"https://index.docker.io/v1/",
-    "services": [{"name": "user", "port": 8080, "expectedCode": "200", "path": "/health"}]
+    "image_registry": "https://index.docker.io/v1/",
+    "services": [
+        {
+            "name": "user",
+            "port": 8000,
+            "expectedCode": "200",
+            "path": "/health"
+        }
+    ]
 }
-

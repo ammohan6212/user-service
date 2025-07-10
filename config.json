@@ -13,6 +13,6 @@
     "gcp_credid": "gcp-credentials-id",
     "aws_credid": "aws-credentials-id",
     "image_registry":"https://index.docker.io/v1/",
-    "services": [{"name": "user", "port": 8080, "expectedCode": "200", "path": "/health"}]
+    "services": [{"name": "user", "port": 8000, "expectedCode": "200", "path": "/health"}]
 }
 

@@ -4,12 +4,26 @@ import os
 import smtplib
 from email.message import EmailMessage
 from dotenv import load_dotenv
+from urllib.parse import urlparse
 
 # Load env variables from .env file
 load_dotenv()
 
+# --- Redis connection from environment variable ---
+# Example: REDIS_URL=redis://redis:6379/0
+redis_url = os.getenv("REDIS_URL")
 
-redis_client = redis.StrictRedis(host="redis", port=6379, db=0, decode_responses=True)
+parsed_url = urlparse(redis_url)
+redis_host = parsed_url.hostname
+redis_port = parsed_url.port or 6379
+redis_db = int(parsed_url.path.lstrip("/") or 0)
+
+redis_client = redis.StrictRedis(
+    host=redis_host,
+    port=redis_port,
+    db=redis_db,
+    decode_responses=True
+)
 
 def generate_otp(length=6):
     """Generate a random numeric OTP of given length."""
@@ -25,10 +39,10 @@ def store_otp(email, otp, ttl=300):
 
 def send_email_otp_gmail(receiver_email, otp):
     """
-    Send OTP email using Gmail SMTP.
+    Send OTP email using Gmail SMTP, credentials from environment.
     """
-    gmail_user = "mohancloud9676@gmail.com"
-    gmail_password = "bofjpfgnlezmqexu"
+    gmail_user = os.getenv("GMAIL_USER")
+    gmail_password = os.getenv("GMAIL_PASSWORD")
 
     msg = EmailMessage()
     msg['Subject'] = 'Your OTP Code'
@@ -64,4 +78,3 @@ def verify_otp(email, otp_to_check, delete_on_success=False):
     else:
         print("Invalid OTP")
         return False
-

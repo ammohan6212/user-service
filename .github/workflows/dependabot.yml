@@ -1,0 +1,9 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"           # location of requirements.txt or pyproject.toml
+    schedule:
+      interval: "daily"      # other values: "weekly", "monthly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
